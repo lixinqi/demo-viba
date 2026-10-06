@@ -1,0 +1,30 @@
+# The distributed program: a chain of calls the two services take turns at.
+#
+# Every call runs at a sub-environment of its own — `c0`, `c1`, … under the
+# program's own path. That path is the call's storage path: it answers one call, the
+# service records the result under it, and the work order for that call goes under it
+# (`distributed/service.py`).
+#
+# Each service's api is defined in that service's own file and imported here:
+# `service_a.viba` holds A's two leaves (`a_step` adds an amount, `a_scale` multiplies
+# by one), `service_b.viba` holds B's (`b_step`, `b_scale`, the same two things). A
+# leaf is impure — the amount is drawn by the service that owns it — so only the
+# result matters, and it is recorded the first time it is computed.
+#
+# The steps are a chain, so they have to run in this order: every call's argument is
+# the result of the call before it. The two services therefore take turns, and
+# neither of them can finish the program alone.
+__decl__ = int <- $env Env
+
+args = __get_args__ << __decl__
+
+import service_a
+import service_b
+
+c0 = service_a.a_step << $env ($sub_env << args.env << "c0") << $x 1
+c1 = service_b.b_step << $env ($sub_env << args.env << "c1") << $x c0
+c2 = service_a.a_scale << $env ($sub_env << args.env << "c2") << $x c1
+c3 = service_b.b_scale << $env ($sub_env << args.env << "c3") << $x c2
+c4 = service_b.b_step << $env ($sub_env << args.env << "c4") << $x c3
+
+__impl__ = c4

@@ -1,0 +1,7 @@
+# The factor service's api: the one leaf its process implements.
+
+times =
+    float
+  <- $env Env
+  <- $x int
+  <- { write the argument in the unit the label uses, and record the answer }

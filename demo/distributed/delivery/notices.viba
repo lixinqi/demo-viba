@@ -1,0 +1,19 @@
+# The notices service's api: the two leaves its process implements.
+#
+# Each is a signature plus a hint in `{…}`: the design says what the call takes and
+# answers, and the implementation is the host's — the notices process alone
+# (`demo/distributed/delivery/notices.py`). `estimate.viba` imports this file and calls
+# these two names. Both answer a str, where the other three leaves of this demo answer an
+# int.
+
+announce =
+    str
+  <- $env Env
+  <- $x int
+  <- { write the number as the notice on the parcel, and record the answer }
+
+emphasize =
+    str
+  <- $env Env
+  <- $x str
+  <- { write the notice in upper case, and record the answer }

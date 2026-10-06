@@ -1,0 +1,7 @@
+# The label service's api: the one leaf its process implements.
+
+write =
+    str
+  <- $env Env
+  <- $x float
+  <- { write the number as the text on the label, and record the answer }

@@ -1,0 +1,54 @@
+# Were the victim and the suspect at least 5 apart at 12:30?
+#
+# The case is one moment of one case: two people, a position each, a time. The
+# rule reads those three facts from its witness — case_at_1230.viba, which the
+# environment names — and answers its one question with a bool.
+#
+# A rule is a program: the environment in, a bool verdict out. Every step of it
+# is a definition of its own, so nothing nests; the step that is not pure (the
+# measurement) goes through `measure` and its answer becomes this case's Prepare
+# in the storage (see viba-compliance.md).
+__decl__ = bool <- $env Env
+
+args = __get_args__ << __decl__
+
+import case_at_1230 as case_at_1230
+
+Point = $x int * $y int
+Case = $victim Point * $suspect Point * $at str
+
+measure_distance =
+	int
+	<- $env Env
+	<- $evidence Environment
+	<- $case Case
+	<- {
+		how far apart the victim and the suspect were: not a pure function,
+		so the answer is prepared
+	}
+
+distance_ge =
+	bool
+	<- $env Env
+	<- $d int
+	<- $threshold int
+	<- {
+		is that distance at least the threshold?
+	}
+
+# this case's storage path: the witness is read under it, and this is where the
+# case's evidence — its Prepare — is kept
+case_env = args.env.sub_env << args.env << "case_at_1230"
+
+# the witness: the three facts of that moment
+the_case = case_at_1230 << case_env
+
+# the measurement of those facts. The call itself runs under a temporary
+# environment (a call has no storage path of its own), and is told where the evidence
+# goes: this case's storage path. Not pure, so what it answers becomes the Prepare.
+distance = measure_distance << $env (args.env.tmp_env << args.env) << $evidence case_env << $case the_case
+
+# the rule's question: at least this far apart?
+threshold = 5
+
+__impl__ = distance_ge << $env (args.env.tmp_env << args.env) << $d distance << $threshold threshold

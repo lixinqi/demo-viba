@@ -1,0 +1,18 @@
+# The parcels service's api: the two leaves its process implements.
+#
+# Each is a signature plus a hint in `{…}`: the design says what the call takes and
+# answers, and the implementation is the host's — the parcels process alone
+# (`demo/distributed/delivery/parcels.py`). `estimate.viba` imports this file and calls
+# these two names.
+
+read_scale =
+    int
+  <- $env Env
+  <- $x int
+  <- { draw the weight on the scale, never below the given minimum, and record the answer }
+
+add_handling =
+    int
+  <- $env Env
+  <- $x int
+  <- { add the weight of the packing, and record the answer }

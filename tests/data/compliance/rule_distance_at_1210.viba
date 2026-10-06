@@ -1,0 +1,30 @@
+__decl__ =
+    bool
+  <- $env Env
+
+args = __get_args__ << __decl__
+
+import case_at_1210 as case_at_1210
+
+Point = $x int * $y int
+Case = $victim Point * $suspect Point * $at str
+
+measure_distance =
+	int
+	<- $env Env
+	<- $evidence Environment
+	<- $case Case
+	<- { measure }
+
+distance_ge =
+	bool
+	<- $env Env
+	<- $d int
+	<- $threshold int
+	<- { at least the threshold? }
+
+case_env = args.env.sub_env << args.env << "case_at_1210"
+the_case = case_at_1210 << case_env
+distance = measure_distance << $env (args.env.tmp_env << args.env) << $evidence case_env << $case the_case
+threshold = 5
+__impl__ = distance_ge << $env (args.env.tmp_env << args.env) << $d distance << $threshold threshold

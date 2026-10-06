@@ -1,0 +1,7 @@
+# The check service's api: the one leaf its process implements.
+
+over =
+    bool
+  <- $env Env
+  <- $x int
+  <- { whether the count is over the limit, and record the answer }

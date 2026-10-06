@@ -1,0 +1,18 @@
+__decl__ =
+    int
+  <- $env Env
+
+args = __get_args__ << __decl__
+
+import boom_case as boom_case
+
+measure_distance =
+	int
+	<- $env Env
+	<- $evidence Environment
+	<- $case Any
+	<- { measure }
+
+case_env = args.env.sub_env << args.env << "boom_case"
+the_case = boom_case << case_env
+__impl__ = measure_distance << $env (args.env.tmp_env << args.env) << $evidence case_env << $case the_case

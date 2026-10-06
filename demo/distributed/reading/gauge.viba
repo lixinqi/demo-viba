@@ -1,0 +1,7 @@
+# The gauge service's api: the one leaf its process implements.
+
+take =
+    int
+  <- $env Env
+  <- $x int
+  <- { draw a reading, never below the given minimum, and record the answer }

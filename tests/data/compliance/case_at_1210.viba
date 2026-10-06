@@ -1,0 +1,6 @@
+__decl__ = Any <- $env Env
+
+__impl__ =
+    $victim ($x 0 * $y 0)
+  * $suspect ($x 0 * $y 3)
+  * $at "12:10"

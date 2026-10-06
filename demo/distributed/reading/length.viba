@@ -1,0 +1,7 @@
+# The length service's api: the one leaf its process implements.
+
+count =
+    int
+  <- $env Env
+  <- $x str
+  <- { how many characters the text has, and record the answer }

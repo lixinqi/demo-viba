@@ -1,0 +1,12 @@
+# The couriers service's api: the one leaf its process implements.
+#
+# A signature plus a hint in `{…}`: the design says what the call takes and answers, and
+# the implementation is the host's — the couriers process alone
+# (`demo/distributed/delivery/couriers.py`). `estimate.viba` imports this file and calls
+# this one name.
+
+days_for =
+    int
+  <- $env Env
+  <- $x int
+  <- { how many days a parcel of this weight takes, and record the answer }

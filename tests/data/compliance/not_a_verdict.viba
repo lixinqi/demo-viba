@@ -1,0 +1,3 @@
+__decl__ = str <- $env Env
+
+__impl__ = "yes"

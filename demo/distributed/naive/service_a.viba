@@ -1,0 +1,18 @@
+# Service A's api: the two leaves A's process implements.
+#
+# Each is a signature plus a hint in `{…}`: the design says what the call takes and
+# answers, and the implementation is the host's — service A's process alone
+# (`demo/distributed/naive/service_a.py`). `interleaved.viba` imports this file and calls
+# these two names.
+
+a_step =
+    int
+  <- $env Env
+  <- $x int
+  <- { add the amount this service drew, and record the answer }
+
+a_scale =
+    int
+  <- $env Env
+  <- $x int
+  <- { multiply by the amount this service drew, and record the answer }

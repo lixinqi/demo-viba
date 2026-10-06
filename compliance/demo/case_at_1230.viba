@@ -1,0 +1,24 @@
+# The witness of the demo: the facts this case is about.
+#
+# The case is one moment: 12:30. At that moment the victim was at (0,0) and the
+# suspect at (3,4) — 3 and 4 along the two axes, so 5 apart, which is the rule's
+# threshold to the point.
+#
+# A witness is a program too — the environment in, the viba data out — and it
+# *asks* for its facts: `at_1230` is a step like any other, a hint and an
+# implementation on the host side. What it answers is the viba data, written the
+# way its design is written. Where those facts really come from — a log, a
+# database, a service — is the implementation's business, not the witness's:
+# this file says which facts there are, never what they are.
+__decl__ =
+    ($victim ($x int * $y int) * $suspect ($x int * $y int) * $at str)
+  <- $env Env
+
+args = __get_args__ << __decl__
+
+at_1230 =
+    ($victim ($x int * $y int) * $suspect ($x int * $y int) * $at str)
+  <- $env Env
+  <- { where each of them was at 12:30, and when it was }
+
+__impl__ = at_1230 << $env args.env
