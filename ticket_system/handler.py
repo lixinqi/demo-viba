@@ -44,11 +44,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from compliance import the_call
 from viba.interpret import (Environment, EnvironmentCompute, EnvironmentStorage,
-                            exec, read_snapshot)
-from viba.type import (Err, NOT_IMPLEMENTED_TAG, REASON_NO_IMPLEMENTATION,
-                       UnderlyingOpErr)
+                            exec, not_implemented, read_snapshot)
 
 from ticket_system import builtins, code, progress, repo, tickets
 
@@ -216,7 +213,7 @@ def answer(ticket: "tickets.Ticket", api, handler_name: str = None, api_path=Non
     problem = (the_commit_id_problem(ticket, handler_name, api_path, running, norm)
                if handler_name is not None else None)
     if problem is not None:
-        return Err(UnderlyingOpErr(problem, "", handler_name or ""))
+        return not_implemented(problem)
     capabilities = _capabilities(api, handler_name or "", tickets_path, interval, norm)
     search = [one for one in list(ticket.viba_path) if one]
     if norm is not None:
@@ -250,10 +247,9 @@ def _capabilities(the_api, name, tickets_path, interval, norm):
     at finish at all (`demo/ticket_examples/service_a.py` and `service_b.py`). Which call
     that is — the data path — is on the environment the step is handed, so this decision
     can only be made inside the implementation: the module a step is declared in is known
-    when it is asked, where it ran only when it runs. Nothing recorded there is a
-    `$not_implemented_err` this layer writes itself (`not_implemented`): viba fills that
-    in for a `get_func` that says so, and hands back as it is an error raised from inside
-    an implementation.
+    when it is asked, where it ran only when it runs. Nothing recorded there is answered
+    as `not_implemented()` (`viba.interpret`), the same answer a host gives from
+    `get_func`: the run fills in the step and the call it knows.
 
     A name that is no step of the norm code at all (`__dyn_call__` at the ticket's own
     `$call`, say) is nobody's here, so this answers `None` and viba says it: that step was
@@ -274,53 +270,36 @@ def _capabilities(the_api, name, tickets_path, interval, norm):
             return None                     # 不是 norm 代码里的一步：viba 自己会说
 
         def from_the_storage(environ, *given):
-            """This step's recorded answer, or `$not_implemented_err` when there is none."""
+            """This step's recorded answer, or `$not_implemented_err` when there is none.
+
+            `not_implemented()` is viba's: the run fills in the step it was about and the
+            call, so this says nothing about either — it is the same answer a host gives
+            from `get_func`, said here because the data path is only on the environment.
+            """
             stored = read_snapshot(environ)
             if stored is not None:
                 return stored
-            raise not_implemented(module, func_name, given)
+            return not_implemented()
 
         return from_the_storage
 
     return get_func
 
 
-def not_implemented(module: str, func_name: str, given=()) -> UnderlyingOpErr:
-    """`$not_implemented_err` for a step said from inside an implementation.
-
-    A host that says so from `get_func` need not fill anything in: the run fills the step
-    in for it (`viba.interpret._refused`). Said from inside the implementation it cannot —
-    the run hands that error back as it is — so the step is written here the way the run
-    writes it (`viba-interpreter.md`): `$module_path` is the module read as a path
-    (`service_b` is `/service_b`), `$full_qualified_func_name` is the whole name
-    (`service_b.b_scale`), and `$call` is the `__dyn_call__` carrying that whole name,
-    which is the form a call can be run again from.
-
-    What a host implementation is handed are the values, not the tags they were written
-    with (`viba.interpret._argument_value`), so the call carries the values, in written
-    order. `given` is the arguments without the environment, which is handed first.
-    """
-    whole = f"{module}.{func_name}" if module else func_name
-    return UnderlyingOpErr(REASON_NO_IMPLEMENTATION,
-                           "/" + module.replace(".", "/") if module else "",
-                           whole, the_call(whole, *given),
-                           tag=NOT_IMPLEMENTED_TAG)
-
-
 def attempt(ticket, api, handler_name, tickets_path, api_path=None, running=None,
             norm=None, interval=INTERVAL) -> object:
     """Answer one ticket, append the stage for the attempt, and answer the stage.
 
-    What the answer is read as comes back from the log, not from the object that
-    was written: a stage is what a reader of the log sees, and the two have to be
-    one thing — the value under `$ok` is a leaf there, a viba data here.
+    What comes back from `exec` is the declared `InterpretResult`, as viba data, and
+    that data is what the stage keeps (`tickets.a_result`): the log says what the run
+    answered, not a copy of it. What is answered here is the stage as it was read back
+    from the log — a stage is what a reader of the log sees.
     """
     result = answer(ticket, api, handler_name, api_path, running, norm, str(tickets_path),
                     interval)
-    value = result.ok_value if hasattr(result, "ok_value") else None
     progress.write_stage(
         tickets_path,
-        progress.a_stage(ticket.uid, handler_name, tickets.a_result(result, value)))
+        progress.a_stage(ticket.uid, handler_name, tickets.a_result(result)))
     return progress.latest(tickets_path, ticket.uid)
 
 

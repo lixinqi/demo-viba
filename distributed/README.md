@@ -112,12 +112,16 @@ its file is.
 A run that reaches a step its host has no implementation for does not fail: it stops
 with the **deferral** — `$err InterpretError`, the third stop of an `interpret` result,
 `$not_implemented_err UnderlyingOpErr` ([`viba-interpreter.md`](../viba/viba-interpreter.md)
-writes all of them out):
+writes all of them out). `interpret` and `exec` answer that declaration **as viba data**
+([`viba/interpret_result.viba`](../viba/viba/interpret_result.viba)), so a stop is read by
+its tags: `$err`, then the tag that says which kind of stop, then that kind's members. A
+host that has no implementation for a step answers `not_implemented()`
+(`viba.interpret`) instead of raising, and the run fills in the step it was about.
 
 ```viba
 InterpretResult =
     Oneof
-  | $ok VibaNode
+  | $ok Any                                      # what this run computed
   | $err InterpretError
 
 InterpretError =
@@ -131,7 +135,7 @@ UnderlyingOpErr =
   * $msg str                                     # one sentence, the reason first
   * $module_path str                             # the module the step is declared in, as a path
   * $full_qualified_func_name str                # the step's whole name there
-  * $call (Any <- $env Env)                      # the call itself, as it was written
+  * $call Any                                    # the call itself, in a form that can be run again
 ```
 
 - `$module_path` is the **module the step is declared in**, as a path (`/service_b` here);

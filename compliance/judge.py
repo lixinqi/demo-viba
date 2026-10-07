@@ -25,11 +25,21 @@ wanted.
 from pathlib import Path
 
 from viba import viba_ast
-from viba.interpret import (Environment, VibaProgramErr, InterpretResult, Ok, interpret,
-                              viba_data, read_snapshot, write_snapshot)
-from viba.reflect import VibaNode, access as reflect_access, by_tag
-from viba.type import Err
+from viba.interpret import (Environment, VibaProgramErr, interpret, read_snapshot,
+                            viba_data, write_snapshot)
+from viba.reflect import VObject, access as reflect_access, by_tag
+from viba.type import OK_TAG, Ok
 from compliance.storage import CALL_PREFIX, CALL_SEGMENT
+
+class Error(RuntimeError):
+    """This layer's own refusal: what it was handed is no rule, or no place to record.
+
+    Not a stop (`InterpretResult`): a stop is what a run answered, and it is data. This
+    is about the *call* — a file that is no rule (its answer is not a verdict), or a
+    storage that cannot keep a call — so it is raised, and a caller that hands this
+    layer those things is the one to hear it.
+    """
+
 
 CALL_TAG = "$call"
 RESULT_TAG = "$result"
@@ -38,7 +48,7 @@ RESULT_TAG = "$result"
 # written `__dyn_call__ << "<name>" << <what it was given>` (viba-interpreter.md).
 DYN_CALL = "__dyn_call__"
 
-__all__ = ["is_compliant", "measure", "the_call", "call_viba_data", "call_path",
+__all__ = ["Error", "is_compliant", "measure", "the_call", "call_viba_data", "call_path",
            "record_run", "read_call", "record_call", "result_of", "call_of",
            "given_of", "CALL_TAG", "RESULT_TAG", "DYN_CALL"]
 
@@ -48,23 +58,29 @@ __all__ = ["is_compliant", "measure", "the_call", "call_viba_data", "call_path",
 # ----------------------------------------------------------------------
 
 
-def is_compliant(rule_file: str, environ: Environment) -> InterpretResult:
-    """`Ok(bool)`, or the error this run stopped with.
+def is_compliant(rule_file: str, environ: Environment) -> VObject:
+    """What the rule answered, or why it stopped: the declared `InterpretResult`.
 
-    A run that reaches an operator this host does not implement answers the stop
-    instead of a verdict — the judgment is somebody else's to finish — and that stop
-    is handed back as it is.
+    A run answers that data (`viba/interpret_result.viba`), so what comes back can be
+    read, kept, and taken up again. A run that reaches an operator this host does not
+    implement answers the stop instead of a verdict — the judgment is somebody else's to
+    finish — and that stop is handed back as it came back, the `$call` in it included.
+
+    A rule's `__impl__` is a `bool` (`viba-compliance.md` 第 1 节), and `interpret` does
+    not read an answer against the design it was written on: a `str` comes back as a
+    `str`. Reading the verdict is this layer's business, so a rule that answered
+    something else is refused here, with `Error` — the file is no rule, which is news
+    about what the caller handed in, not a stop the run reached.
     """
     answer = interpret(rule_file, environ)
-    if isinstance(answer, Err):
-        return answer.error
-    leaf = reflect_access.leaf(answer.ok_value)
-    if isinstance(leaf, VibaProgramErr):
-        return VibaProgramErr(f"the rule answered no verdict: {leaf.msg}")
-    if not isinstance(leaf.ok_value, bool):
-        return VibaProgramErr(f"the rule answered {type(leaf.ok_value).__name__}, "
-                   f"and a verdict is a bool")
-    return leaf
+    if answer.data.tag != OK_TAG:
+        return answer
+    leaf = reflect_access.leaf(answer.by_tag(OK_TAG))
+    if isinstance(leaf, Ok) and isinstance(leaf.ok_value, bool):
+        return answer
+    what = (type(leaf.ok_value).__name__ if isinstance(leaf, Ok)
+            else "a piece that is no leaf")
+    raise Error(f"the rule answered {what}, and a verdict is a bool")
 
 
 # ----------------------------------------------------------------------
@@ -183,7 +199,7 @@ def measure(environ: Environment, name: str, given, compute,
 # ----------------------------------------------------------------------
 
 
-def record_run(rule_file: str, environ: Environment) -> InterpretResult:
+def record_run(rule_file: str, environ: Environment) -> VObject:
     """Run the rule, recording into the backup every call it measured.
 
     Nothing is recorded by a run that stopped: a deferral is not an answer, and
@@ -192,10 +208,10 @@ def record_run(rule_file: str, environ: Environment) -> InterpretResult:
     storage = getattr(environ, "storage", None)
     record = getattr(storage, "record_text", None)
     if record is None or getattr(storage, "call_root_dir", None) is None:
-        return VibaProgramErr("this storage cannot record a call: give a "
-                   "CallStorage with a call_root_dir")
+        raise Error("this storage cannot record a call: give a CallStorage "
+                    "with a call_root_dir")
     answer = is_compliant(rule_file, environ)
-    if not isinstance(answer, Ok):
+    if answer.data.tag != OK_TAG:
         return answer
     for path in _run_calls(storage):
         text = storage.read_text(path)
@@ -233,7 +249,7 @@ def _member(node, tag):
 
 def _data(value):
     """The AST piece under a viba data (or the piece itself)."""
-    return value.data if isinstance(value, VibaNode) else value
+    return value.data if isinstance(value, VObject) else value
 
 
 def _piece(value):

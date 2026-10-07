@@ -3,7 +3,7 @@
 两套服务各是一组 api 加一个 python 进程（A 的 api 只跑在 A 的进程里，B 的只跑在 B 的
 进程里）。`demo/distributed/naive/interleaved.viba` 是一份把两边 api 交错起来的程序：每一步的实参
 是上一步的结果，所以两个服务进程只能轮流接。一个进程执行到不属于自己的一步就停下，结果是
-`UnderlyingOpErr`（`tag` 是 `$not_implemented_err`，里面带着这一步声明在哪个模块、它的整名
+`$err` 的 `$not_implemented_err` 那一支（里面带着这一步声明在哪个模块、它的整名
 （`$module_path`、`$full_qualified_func_name`）与这次调用本身 `$call`）；调度把这次停下
 写进两个服务进程共享的 environment storage —— viba 代码落在这一步的数据路径下
 （`<数据路径>/call/<api>.viba`），这一轮再记一份 `failure/round-<k>.viba`。下一轮那套服务先

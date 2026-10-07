@@ -97,8 +97,9 @@ class TicketStage:
 def result_of(interpret_result):
     """(the value, True) when this result answered, (None, False) when it did not.
 
-    `InterpretResult` is `$ok VibaNode | $err InterpretError`, and a stage writes the one
-    branch that happened (`tickets.a_result`). The other branch is simply not there, so
+    `InterpretResult` is `$ok Any | $err InterpretError`, and a stage keeps the branch
+    the run answered, as it answered it (`tickets.a_result`). The other branch is simply
+    not there, so
     `by_tag` on it raises: a branch this data does not hold, a `nil`, and a branch that
     holds something other than a value are all "no answer". Reading a result is never an
     error, because not answering is one of the two things a result may say.
@@ -113,7 +114,8 @@ def result_of(interpret_result):
 def error_of(interpret_result):
     """The `$err` branch — one sentence — or None when this result answered `$ok`.
 
-    The stored error is the tagged product `InterpretError` is (`tickets.an_error`), so
+    The stored error is the tagged product `InterpretError` is (what the run answered,
+    kept as it came back by `tickets.a_result`), so
     what comes back is `"<the tag that says which way>: <its $msg>"`
     (`reason_of`). The fields themselves are one call away (`error_tag`,
     `field_of`, `call_of`, `stack_of`).
@@ -158,7 +160,7 @@ def field_of(interpret_result, field: str):
 def stack_of(interpret_result) -> List["Frame"]:
     """The `$stack` of a `$viba_program_err`: the calls the run was in, outermost first.
 
-    A stack is a `list[Frame]` (`tickets.an_error`), so it is read by position, element
+    A stack is a `list[Frame]` (the declared `ProgramErr`), so it is read by position, element
     by element — each element a product of `$file_path` and `$lineno`, the two members
     `Frame` has. A stop of another kind keeps no stack, and a stack nobody wrote is
     empty: both read as `[]`, because "this stop was in no call" is what an empty stack

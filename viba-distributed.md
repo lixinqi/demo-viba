@@ -102,7 +102,7 @@ A 的服务进程执行到 `c1`（`b_step`）这一步时，能力表里没有�
 ```viba
 InterpretResult =
     Oneof
-  | $ok VibaNode
+  | $ok Any                                     # 这次执行算出来的值
   | $err InterpretError
 
 InterpretError =
@@ -116,8 +116,13 @@ UnderlyingOpErr =
   * $msg str                                    # 一句话，开头就是原因
   * $module_path str                            # 这一步声明在哪个模块（读成路径）
   * $full_qualified_func_name str               # 这一步的整名（模块 + 它在那儿叫的名字）
-  * $call (Any <- $env Env)                     # 这次调用本身，按它写下来的样子（环境还没给）
+  * $call Any                                   # 这次调用本身，写成能再跑的形式（环境还没给）
 ```
+
+`interpret` 与 `exec` 回答的就是这份数据（[`viba/interpret_result.viba`](viba/interpret_result.viba)），
+所以读它是按 tag 往下读：`$err` 那一支，再按哪一支停法读它的字段。宿主自己要说「这一步没有实现」时
+**交回这份数据**（`viba.interpret.not_implemented()`），不抛异常：它已经写下来的东西留着，缺的由 run
+用它知道的这次调用补上。
 
 `$module_path` 与 `$full_qualified_func_name` 说的是**停在哪一步**，它们正是宿主（跑 `interpret`
 的那个程序）从 `get_func(module, name)` 收到的两个名字（`viba-interpreter.md`

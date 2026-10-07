@@ -60,8 +60,9 @@ def the_api(context):
 `full_qualified_func_name`」）。表里没有这个名字时，答案还可能在**这次调用自己的存储路径**下：
 有人记过就拿它当答案。那条路径只有环境上有，所以这件事是在实现里判的（`_capabilities` 的
 `from_the_storage`）—— 这就是「另一个进程做过的那几步，我这一轮直接回放」，一段跨服务的程序因此
-能被两个进程一段一段地推完。谁都没记过、也不归自己的那一步，才是 `$not_implemented_err`；它由
-说这句话的那一方写全（`handler.not_implemented`：模块读成路径、整名、以及 `$call`）。
+能被两个进程一段一段地推完。谁都没记过、也不归自己的那一步，才是 `$not_implemented_err`：这一步由
+说这句话的那一方答 `not_implemented()`（`viba.interpret` —— 一份数据，不抛异常），模块读成路径、
+整名、以及带实参 tag 的 `$call` 都由 viba 补上。
 
 几套处理进程同时在同一个票据目录上轮询，所以「甲读到还没做完、要动手时乙已经做完了」这件事躲不
 掉：甲那条停下的记录会落在乙那条 `$ok` 之后。所以一张票据做完了没有，读的是它这一整份进度里**有
@@ -161,7 +162,7 @@ value =
 `os.pathsep` 连的事，不是票据存什么的事。
 
 `$handler_name2api_repo_commit_id` 是 `dict[str, str]`：一个角色一项，键就是写下来的那些键，值按键取
-（`tickets.a_dict`：`VibaNode.keys` 加 `VibaNode.at_key`），和 `$__getitem__` 对 dict 的两步是同一件
+（`tickets.a_dict`：`VObject.keys` 加 `VObject.at_key`），和 `$__getitem__` 对 dict 的两步是同一件
 事（`viba-interpreter.md`「按地址读元素」）。
 
 谁要的值不是容器，读的人当场报出来，不猜：`a_list` / `a_dict` 遇上不是容器的成员、`the_paths` 遇上

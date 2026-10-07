@@ -31,7 +31,7 @@ import tempfile
 from pathlib import Path
 
 from viba.interpret import (Environment, EnvironmentStorage, interpret, sub_env)
-from viba.type import Ok, UnderlyingOpErr, VibaProgramErr
+from viba.type import ERR_TAG, OK_TAG, VibaProgramErr
 
 from ticket_system import code
 
@@ -211,21 +211,32 @@ def _the_environment(environ: Environment, repo: "NormRepo") -> Environment:
 
 
 def _the_value(answer):
-    """The value a run answered, as the host value the call is answered with.
+    """The norm run's answer, as the value the step is answered with.
 
-    A run that did not answer is a stop, and a stop is raised: it travels the way every
-    stop from a host function travels (`UnderlyingOpErr`, which is an exception), so the
-    stage carries what happened in the norm repo instead of a note about this layer's
-    plumbing.
+    A run answers the declared `InterpretResult` as viba data (`viba.interpret`), so
+    this reads the branch:
+
+    - `$ok <值>`：把那个值本身答回去（宿主答一个 `VObject`，viba 就当它是这个值）；
+    - `$err ($not_implemented_err …)` / `$err ($underlying_viba_op_err …)`：**把那份失败
+      原样答回去** —— 一次运行在自己里面转发一次失败（`viba.interpret._completed`），
+      所以停下来的仍然是 norm 代码里那一步，它自己的模块、整名与 `$call` 都留着；
+    - `$err` 的另外两支（程序跑不起来、环境的 api 收不下）不是「哪一步没有实现」，
+      这里抛出去，让它按「这个实现坏了」记下来（`raised: …`）。
     """
-    if not isinstance(answer, Ok):
-        error = getattr(answer, "error", answer)
-        if isinstance(error, UnderlyingOpErr):
-            raise error
-        raise UnderlyingOpErr(getattr(error, "msg", str(error)), "", "")
-    value = answer.ok_value
-    leaf = getattr(value, "leaf", None)
-    return value if leaf is None else leaf
+    if answer.data.tag == OK_TAG:
+        return answer.by_tag(OK_TAG)
+    stop = answer.by_tag(ERR_TAG)
+    if stop.data.tag in ("$not_implemented_err", "$underlying_viba_op_err"):
+        return stop
+    raise RuntimeError(f"the norm code did not run: {_the_reason(stop)}")
+
+
+def _the_reason(stop) -> str:
+    """One stop's `$msg`, for the sentence above."""
+    given = stop.by_tag(stop.data.tag)
+    if given is None:
+        return str(stop.data.tag)
+    return str(given.by_tag("$msg").leaf)
 
 
 def _literal(value) -> str:

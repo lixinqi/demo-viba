@@ -16,14 +16,15 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(ROOT / "viba"))
 
+from interpreter_support import (is_ok, stop_node, stop_tag, stop_text, value_of)
+
 from viba import viba_ast, serialize
-from compliance import (CallStorage, call_of, given_of, is_compliant, result_of,
-                             call_path, record_run, read_call, record_call)
+from compliance import (CallStorage, Error, call_of, given_of, is_compliant,
+                             result_of, call_path, record_run, read_call, record_call)
 from compliance.demo.host import RULE, DistanceHost
 from viba.interpret import Environment, EnvironmentCompute
 from viba.reflect import access as reflect_access
-from viba.type import (Err, FAILURE_TAG, NOT_IMPLEMENTED_TAG, Ok,
-                       UnderlyingOpErr, VibaProgramErr)
+from viba.type import FAILURE_TAG, NOT_IMPLEMENTED_TAG, Ok, PROGRAM_ERR_TAG
 
 COMPLIANCE = Path(__file__).resolve().parent / "data" / "compliance"
 BACKUP = COMPLIANCE / "backup"
@@ -47,15 +48,25 @@ def check(ok: bool, label: str):
 
 def _not_implemented(result):
     """The stop that says this step has no implementation."""
-    return isinstance(result, UnderlyingOpErr) and result.tag == NOT_IMPLEMENTED_TAG
+    return stop_tag(result) == NOT_IMPLEMENTED_TAG
 
 
 def labelled(result, want, label: str):
     if want is None:
-        check(isinstance(result, Ok), f"{label}: {result!r}")
+        check(is_ok(result), f"{label}: {result!r}")
     else:
-        check(isinstance(result, VibaProgramErr) and want in result.msg,
-              f"{label}: expected VibaProgramErr({want!r}), got {result!r}")
+        check(stop_tag(result) == PROGRAM_ERR_TAG and want in stop_text(result, "$msg"),
+              f"{label}: expected a $viba_program_err with {want!r}, got {result!r}")
+
+
+def refuses(work, want, label: str):
+    """This layer refuses what it was handed: `Error` with `want` in it."""
+    try:
+        work()
+    except Error as problem:
+        check(want in str(problem), f"{label}: {problem!r}")
+        return
+    check(False, f"{label}: expected Error({want!r})")
 
 
 def case_environ(env, name="case_at_1230"):
@@ -101,10 +112,11 @@ def _deferral(tmp: Path):
     verdict = is_compliant(str(RULE), env)
     check(_not_implemented(verdict),
           f"a rule whose predicate nobody implements answers the deferral: {verdict!r}")
-    check(verdict.full_qualified_func_name == "rule_distance.distance_ge"
-          and verdict.module_path == "/rule_distance",
+    check(stop_text(verdict, "$full_qualified_func_name") == "rule_distance.distance_ge"
+          and stop_text(verdict, "$module_path") == "/rule_distance",
           f"the step names the module and the whole name that stopped: {verdict!r}")
-    check(verdict.msg == "no implementation", f"and why: {verdict.msg!r}")
+    check(stop_text(verdict, "$msg") == "no implementation",
+          f"and why: {stop_text(verdict, '$msg')!r}")
     check(host.measured == [((0, 0), (3, 4))],
           f"the measurement before it still happened: {host.measured}")
 
@@ -120,7 +132,7 @@ def _a_deferral_carries_the_work(tmp: Path):
     """递延里那份调用就是工单要的东西：不必再跑一次，就能写出一份合法记录。"""
     # 一条跑完的规则：它记下的那次调用带着它量过的那份案子数据
     env, host = environ_for(tmp / "work-store")
-    check(isinstance(is_compliant(str(RULE), env), Ok), "the rule judges when it can")
+    check(is_ok(is_compliant(str(RULE), env)), "the rule judges when it can")
     recorded = read_call(case_environ(env), "measure_distance")
     check(recorded is not None, f"and records its call: {recorded!r}")
     wanted = _written(given_of(call_of(recorded)))
@@ -135,15 +147,16 @@ def _a_deferral_carries_the_work(tmp: Path):
     env, host = environ_for(tmp / "work-deferred", host=NoMeasure())
     duty = is_compliant(str(RULE), env)
     check(_not_implemented(duty), f"the rule defers: {duty!r}")
-    check(_written(given_of(duty.call)) == wanted,
+    handed = stop_node(duty, "$call")
+    check(_written(given_of(handed)) == wanted,
           f"the deferral carries the same case data:\n"
-          f"{_written(given_of(duty.call))}\n{wanted}")
+          f"{_written(given_of(handed))}\n{wanted}")
 
     # 拿它手写一份记录：$call 就是这份可执行的调用，$result 空着
     hands = case_environ(env)
-    record_call(hands, "measure_distance", duty.call, None)
+    record_call(hands, "measure_distance", handed, None)
     written = read_call(hands, "measure_distance")
-    check(_written(call_of(written)) == _written(duty.call),
+    check(_written(call_of(written)) == _written(handed),
           f"a record written from the deferral names the same call: "
           f"{_written(call_of(written))}")
     check(result_of(written) == (None, False),
@@ -163,7 +176,7 @@ def _judge(tmp: Path):
     store = tmp / "judge-store"
     env, host = environ_for(store)
     verdict = is_compliant(str(RULE), env)
-    check(isinstance(verdict, Ok) and verdict.ok_value is True,
+    check(is_ok(verdict) and value_of(verdict) is True,
           f"the rule answered true: {verdict!r}")
     check(host.witnessed == ["12:30"],
           f"the witness asked the host for its facts, it did not write them in: "
@@ -176,7 +189,7 @@ def _judge(tmp: Path):
     near_rule = case_file("rule_distance_at_1210")
     env, host = environ_for(tmp / "near-store")
     verdict = is_compliant(near_rule, env)
-    check(isinstance(verdict, Ok) and verdict.ok_value is False,
+    check(is_ok(verdict) and value_of(verdict) is False,
           f"a case 3 apart answers false: {verdict!r}")
     check(host.judged == [3], f"and the predicate saw 3: {host.judged}")
 
@@ -186,7 +199,7 @@ def _call_and_record(tmp: Path):
     store = tmp / "record-store"
     backup = tmp / "record-backup"
     env, host = environ_for(store, backup)
-    check(isinstance(is_compliant(str(RULE), env), Ok), "the run judges")
+    check(is_ok(is_compliant(str(RULE), env)), "the run judges")
     check(host.measured == [((0, 0), (3, 4))], "and measures")
 
     # 本轮 store 里那份：调用的参数定了、结果也写上了；它落在案子自己的数据路径下面
@@ -194,7 +207,7 @@ def _call_and_record(tmp: Path):
     value, has_answer = result_of(stored)
     check(has_answer and value == 5, f"the run's own call carries the answer: {stored!r}")
 
-    check(isinstance(record_run(str(RULE), env), Ok), "record_run judges too")
+    check(is_ok(record_run(str(RULE), env)), "record_run judges too")
     check(host.measured == [((0, 0), (3, 4))],
           f"and replays the value it just measured: {host.measured}")
     recorded_file = backup / "root" / "case_at_1230" / "call" / "measure_distance.viba"
@@ -208,7 +221,7 @@ def _replay_from_a_shipped_backup(tmp: Path):
     """仓库里备份好的那份调用：读它，不重量。"""
     env, host = environ_for(tmp / "replay-store", BACKUP)
     verdict = is_compliant(str(RULE), env)
-    check(isinstance(verdict, Ok) and verdict.ok_value is True,
+    check(is_ok(verdict) and value_of(verdict) is True,
           f"a backed-up call answers the verdict: {verdict!r}")
     check(host.measured == [],
           f"and the impure step is not taken: {host.measured}")
@@ -274,8 +287,8 @@ def _refusals(tmp: Path):
     env, host = environ_for(tmp / "refuse-store")
 
     not_a_verdict = case_file("not_a_verdict")
-    labelled(is_compliant(not_a_verdict, env), "a verdict is a bool",
-             "a rule that answers a string -> VibaProgramErr")
+    refuses(lambda: is_compliant(not_a_verdict, env), "a verdict is a bool",
+            "a rule that answers a string is refused")
 
     design = case_file("design_only")
     labelled(is_compliant(design, env), "has no __impl__",
@@ -287,16 +300,17 @@ def _refusals(tmp: Path):
 
     boom_rule = case_file("boom_rule")
     failed_verdict = is_compliant(boom_rule, env)
-    check(isinstance(failed_verdict, UnderlyingOpErr)
-          and failed_verdict.tag == FAILURE_TAG and "raised" in failed_verdict.msg,
-          f"a measurement that blows up -> UnderlyingOpErr: {failed_verdict!r}")
-    check(failed_verdict.full_qualified_func_name.endswith(".measure_distance"),
+    check(stop_tag(failed_verdict) == FAILURE_TAG
+          and "raised" in stop_text(failed_verdict, "$msg"),
+          f"a measurement that blows up -> $underlying_viba_op_err: {failed_verdict!r}")
+    check(stop_text(failed_verdict, "$full_qualified_func_name")
+          .endswith(".measure_distance"),
           f"and the failure names the step: {failed_verdict!r}")
 
     plain = CallStorage("root", None, str(tmp / "no-backup-store"))
     no_backup = Environment(plain, EnvironmentCompute(DistanceHost().get_func))
-    labelled(record_run(str(RULE), no_backup), "cannot record a call",
-             "record_run without a backup to write -> VibaProgramErr")
+    refuses(lambda: record_run(str(RULE), no_backup), "cannot record a call",
+            "record_run without a backup to write is refused")
 
 
 if __name__ == "__main__":

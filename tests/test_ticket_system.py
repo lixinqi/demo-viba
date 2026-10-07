@@ -44,7 +44,9 @@ from interpreter_support import Checks
 from compliance import the_call
 from ticket_system import code, handler, progress, repo, tickets
 from viba.interpret import Environment, EnvironmentStorage, read_snapshot
-from viba.type import Err, VibaProgramErr
+from viba.interpret import is_interpret_result, not_implemented, viba_data
+from viba import viba_ast
+from viba.type import Frame, VibaProgramErr
 
 checks = Checks("ticket_system")
 check = checks.check
@@ -262,10 +264,40 @@ def the_result_is_one_branch(tmp: Path):
           f"and neither writes the branch that did not happen: {answered!r}")
 
 
+def stop_data(tag: str, members) -> object:
+    """One `$err` piece, written the way the declaration writes it (a case's fixture).
+
+    The four kinds are `viba/interpret_result.viba`'s, and each piece written here is a
+    resident of `InterpretResult` (`is_interpret_result`), so what the readers are
+    checked against below is the declared shape, not one invented in the test.
+    """
+    def piece(value):
+        if value is None:
+            return viba_ast.Nil()
+        if isinstance(value, list) and value and isinstance(value[0], Frame):
+            return viba_ast.TypeApp("ListLiteral", [
+                viba_ast.ProductChain([
+                    viba_ast.Tagged("$file_path", viba_ast.Constant(one.file_path)),
+                    viba_ast.Tagged("$lineno", viba_ast.Constant(one.lineno)),
+                ]) for one in value])
+        if isinstance(value, list):
+            return viba_ast.TypeApp("ListLiteral", [viba_ast.Constant(one) for one in value])
+        return viba_ast.Constant(value)
+
+    return viba_data(viba_ast.Tagged(
+        "$err", viba_ast.Tagged(tag, viba_ast.ProductChain(
+            [viba_ast.Tagged(name, piece(value)) for name, value in members]))))
+
+
+def _member_of(piece, tag: str, member: str):
+    """One member of one stored stop, as the plain value it holds."""
+    branch = piece.by_tag("$err").by_tag(tag)
+    return progress._leaf_or_none(branch.by_tag(member))
+
+
 def the_error_keeps_its_fields(tmp: Path):
     """`$err` 里装的是 `InterpretError` 的那一支：哪一种停法、哪一步、那次调用，都在。"""
-    from viba.type import (EnvironmentApiInvalidArgumentErr, FAILURE_TAG, Frame,
-                           UnderlyingOpErr, VibaProgramErr)
+    from viba.type import ERR_TAG
 
     path = tmp / "error-tickets"
     norm = the_norm_code()
@@ -297,33 +329,41 @@ def the_error_keeps_its_fields(tmp: Path):
           f"{progress.field_of(stop, '$full_qualified_func_name')!r}")
 
     # 四种停法各写各的那一支，字段都留得住
+    # 四种停法各写各的那一支：这里按声明里的写法把四支各写一份
+    # （`viba/interpret_result.viba`），再走一遍「写一篇、读回来」
     cases = {
-        "$not_implemented_err": UnderlyingOpErr("no implementation", "t1", "double",
-                                                the_call("double", 21),
-                                                tag="$not_implemented_err"),
-        "$underlying_viba_op_err": UnderlyingOpErr("raised: boom", "t1", "double",
-                                                   the_call("double", 21),
-                                                   tag=FAILURE_TAG),
-        "$viba_program_err": VibaProgramErr("broken program", [Frame("main.viba", 0)]),
-        "$environment_api_invalid_argument_err": EnvironmentApiInvalidArgumentErr(
-            "raised: no such root", "Environment.get_root", the_call("f", 1)),
+        "$not_implemented_err": stop_data("$not_implemented_err", [
+            ("$msg", "no implementation"), ("$module_path", "/service_a"),
+            ("$full_qualified_func_name", "service_a.a_add"), ("$call", None)]),
+        "$underlying_viba_op_err": stop_data("$underlying_viba_op_err", [
+            ("$msg", "raised: boom"), ("$module_path", "/service_a"),
+            ("$full_qualified_func_name", "service_a.a_add"), ("$call", None)]),
+        "$viba_program_err": stop_data("$viba_program_err", [
+            ("$msg", "broken program"), ("$stack", [Frame("main.viba", 0)])]),
+        "$environment_api_invalid_argument_err":
+            stop_data("$environment_api_invalid_argument_err", [
+                ("$msg", "raised: no such root"),
+                ("$api_name", "Environment.get_root"), ("$args", None)]),
     }
-    for wanted, error in cases.items():
-        written = progress.a_stage("t1", "a", tickets.a_result(Err(error), None))
+    for wanted, piece in cases.items():
+        check(is_interpret_result(piece),
+              f"{wanted} is a resident of the declared InterpretResult")
+        written = progress.a_stage("t1", "a", tickets.a_result(piece))
         place = tmp / f"one-{wanted.strip('$')}"
         place.mkdir(parents=True, exist_ok=True)
         progress.write_stage(place, written)
         read = progress.latest(place, "t1").interpret_result
         check(progress.error_tag(read) == wanted,
               f"{wanted} keeps its branch: {progress.error_tag(read)!r}")
-        check(progress.field_of(read, "$msg") == error.msg,
-              f"{wanted} keeps its $msg: {progress.field_of(read, '$msg')!r}")
-        if isinstance(error, UnderlyingOpErr):
-            check(progress.field_of(read, "$module_path") == error.module_path
-                  and progress.field_of(read, "$full_qualified_func_name") == error.full_qualified_func_name,
+        check(_member_of(read, wanted, "$msg") == _member_of(piece, wanted, "$msg"),
+              f"{wanted} keeps its $msg: {_member_of(read, wanted, '$msg')!r}")
+        if wanted in ("$not_implemented_err", "$underlying_viba_op_err"):
+            check(_member_of(read, wanted, "$module_path") == "/service_a"
+                  and _member_of(read, wanted, "$full_qualified_func_name")
+                  == "service_a.a_add",
                   f"{wanted} keeps the step it was about")
-        if isinstance(error, VibaProgramErr):
-            check(progress.stack_of(read) == error.stack,
+        if wanted == "$viba_program_err":
+            check(progress.stack_of(read) == [Frame("main.viba", 0)],
                   f"{wanted} keeps its $stack frame by frame: "
                   f"{progress.stack_of(read)!r}")
 
@@ -331,7 +371,8 @@ def the_error_keeps_its_fields(tmp: Path):
     stack = [Frame("main.viba", 0), Frame(str(norm / "simple.viba"), 12)]
     written = progress.a_stage(
         "t1", "a",
-        tickets.a_result(Err(VibaProgramErr("broken program", stack)), None))
+        tickets.a_result(stop_data("$viba_program_err",
+                                   [("$msg", "broken program"), ("$stack", stack)])))
     progress.write_stage(path, written)
     read = progress.latest(path, "t1").interpret_result
     check(progress.stack_of(read) == stack,
@@ -633,7 +674,7 @@ def the_answer_is_a_latch(tmp: Path):
     两个进程同时轮询时，一个进程读到的东西可能是旧的：它那条停下的记录会落在别人那条 `$ok` 之后。
     进度只增，答案写进去就一直在，所以票据还是做完了。
     """
-    from viba.type import Err, UnderlyingOpErr
+
 
     path = tmp / "latch-tickets"
     norm = the_norm_code()
@@ -645,7 +686,7 @@ def the_answer_is_a_latch(tmp: Path):
     # 另一个进程拿的是旧状态，它那条「做不了」落在 `$ok` 后面
     progress.write_stage(path, progress.a_stage(
         "t1", "b", tickets.a_result(
-            Err(UnderlyingOpErr("no implementation", "", "a_add")), None)))
+            not_implemented("no implementation", "/service_a", "service_a.a_add"))))
     check(not progress.latest_ok(path, "t1"),
           "a stop written after it is now the latest stage")
     check(progress.answered(path, "t1") and progress.finished(path),

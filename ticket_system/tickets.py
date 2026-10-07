@@ -46,7 +46,7 @@ from viba import serialize, viba_ast
 from viba.interpret import (Environment, EnvironmentStorage, read_snapshot,
                             viba_data)
 from viba.reflect import access as reflect_access
-from viba.type import Err, UnderlyingOpErr, VibaProgramErr
+from viba.type import VibaProgramErr
 
 # The file names: one ticket per directory, every attempt under `progress/`.
 TICKET_NAME = "ticket"
@@ -79,111 +79,26 @@ def the_product(fields) -> viba_ast.ProductChain:
         [viba_ast.Tagged(tag, _piece(value)) for tag, value in fields])
 
 
-def a_result(result, value):
-    """An `InterpretResult` as the piece of viba code a stage keeps of it.
+def a_result(result) -> viba_ast.AST:
+    """The answer a run gave, as the piece of viba code a stage keeps of it.
 
-    A sum is written as **the branch that is there**: `$ok <value>` when the call
-    answered, `$err <an InterpretError>` when it stopped. Both branches at once would be
-    no resident of the sum at all.
+    A run answers the declared `InterpretResult` **as viba data**
+    (`viba/interpret_result.viba`, `viba.interpret.interpret`): `$ok <what the call
+    answered>` or `$err <why it stopped>`, one branch, already the shape a stage stores.
+    So a stage keeps what came back, as it came back: no error is rewritten field by
+    field here, and what a reader of the log sees is what the run answered.
 
         InterpretResult =
             Oneof
-          | $ok VibaNode
+          | $ok Any
           | $err InterpretError
-
-        InterpretError =
-            Oneof
-          | $viba_program_err ProgramErr
-          | $underlying_viba_op_err UnderlyingOpErr
-          | $not_implemented_err UnderlyingOpErr
-          | $environment_api_invalid_argument_err EnvironmentApiInvalidArgumentErr
-
-    The error is written with the fields the type names (`an_error` below), so a stage
-    says which kind of stop it was, which step it was about, and what the call was — not
-    just a sentence.
     """
     if isinstance(result, viba_ast.AST):
         return result
-    if isinstance(result, Err):
-        return viba_ast.Tagged("$err", an_error(result.error))
-    return viba_ast.Tagged("$ok", _piece(value))
-
-
-def an_error(error) -> viba_ast.AST:
-    """An `InterpretError` as the tagged product the type says it is.
-
-    One branch per kind, each with the fields of its own product:
-
-    - `$not_implemented_err` / `$underlying_viba_op_err` (`UnderlyingOpErr`): `$msg`,
-      `$module_path`, `$full_qualified_func_name`, `$call` — which way it stopped, at which
-      step (the module the step is declared in, as a path, and its whole name there), and
-      the call itself in the runnable form the error carries;
-    - `$viba_program_err` (`ProgramErr`): `$msg` and `$stack` — the calls the run was in,
-      as the `list[Frame]` the type names (`_stack_piece`);
-    - `$environment_api_invalid_argument_err`: `$msg`, `$api_name`, `$args`.
-    """
-    from viba.type import (EnvironmentApiInvalidArgumentErr, Err as _Err,
-                           FAILURE_TAG, NOT_IMPLEMENTED_TAG, VibaProgramErr)
-
-    if isinstance(error, _Err):              # a result that was not unwrapped
-        error = error.error
-    if isinstance(error, UnderlyingOpErr):
-        tag = ("$not_implemented_err" if error.tag == NOT_IMPLEMENTED_TAG
-               else "$underlying_viba_op_err" if error.tag == FAILURE_TAG
-               else str(error.tag or FAILURE_TAG))
-        return viba_ast.Tagged(tag, _a_product([
-            ("$msg", viba_ast.Constant(str(error.msg))),
-            ("$module_path", viba_ast.Constant(str(error.module_path))),
-            ("$full_qualified_func_name",
-             viba_ast.Constant(str(error.full_qualified_func_name))),
-            ("$call", _piece(error.call) if error.call is not None else viba_ast.Nil()),
-        ]))
-    if isinstance(error, EnvironmentApiInvalidArgumentErr):
-        return viba_ast.Tagged("$environment_api_invalid_argument_err", _a_product([
-            ("$msg", viba_ast.Constant(str(error.msg))),
-            ("$api_name", viba_ast.Constant(str(error.api_name))),
-            ("$args", _piece(error.arguments) if error.arguments is not None
-             else viba_ast.Nil()),
-        ]))
-    if isinstance(error, VibaProgramErr):
-        return viba_ast.Tagged("$viba_program_err", _a_product([
-            ("$msg", viba_ast.Constant(str(error.msg))),
-            ("$stack", _stack_piece(error.stack)),
-        ]))
-    return viba_ast.Tagged("$viba_program_err", _a_product([
-        ("$msg", viba_ast.Constant(f"{type(error).__name__}: {error}")),
-        ("$stack", _stack_piece([])),
-    ]))
-
-
-def _a_product(fields) -> viba_ast.ProductChain:
-    """(tag, piece) pairs as one product."""
-    return viba_ast.ProductChain([viba_ast.Tagged(tag, piece) for tag, piece in fields])
-
-
-def _stack_piece(stack) -> viba_ast.TypeApp:
-    """`Stack` (`list[Frame]`) as the list value viba writes a list as.
-
-    A frame is a product of the two members the type names, and the list is
-    `ListLiteral[…]` with one element per frame — the container literal written where a
-    value goes (`viba-interpreter.md`「容器字面量」). The stack of a run that never
-    entered a call is empty, and `ListLiteral[]` is how viba writes an empty list.
-    """
-    return viba_ast.TypeApp("ListLiteral", [
-        _a_product([("$file_path", viba_ast.Constant(str(frame.file_path))),
-                    ("$lineno", viba_ast.Constant(int(frame.lineno)))])
-        for frame in stack])
-
-
-def why_it_stopped(error) -> str:
-    """One sentence for a stop: the tag that says which way, then the message.
-
-    Still used for the one-line reading of a stop (`progress.reason_of` builds the same
-    sentence out of the stored error)."""
-
-    tag = getattr(error, "tag", None) or "$viba_program_err"
-    msg = getattr(error, "msg", None) or str(error)
-    return f"{tag}: {msg}"
+    data = getattr(result, "data", result)      # a VObject, or the piece itself
+    if isinstance(data, viba_ast.AST):
+        return data
+    raise RuntimeError(f"a run answers viba data, and this is {type(result).__name__}")
 
 
 def _piece(value) -> viba_ast.AST:

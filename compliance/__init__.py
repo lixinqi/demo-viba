@@ -11,14 +11,14 @@ The worked example is `compliance/demo/`; the story is in
 `viba-compliance.md`.
 """
 
-from compliance.judge import (CALL_TAG, RESULT_TAG, call_of, given_of, is_compliant,
-                                   measure, result_of, call_viba_data,
+from compliance.judge import (CALL_TAG, RESULT_TAG, Error, call_of, given_of,
+                                   is_compliant, measure, result_of, call_viba_data,
                                    call_path, record_run, read_call,
                                    record_call, the_call)
 from compliance.storage import CALL_PREFIX, CallStorage
 
 __all__ = [
-    "CALL_TAG", "RESULT_TAG", "CALL_PREFIX", "CallStorage",
+    "CALL_TAG", "RESULT_TAG", "CALL_PREFIX", "CallStorage", "Error",
     "call_of", "given_of", "is_compliant", "measure", "result_of",
     "call_viba_data", "call_path", "record_run", "read_call", "record_call",
     "the_call",

@@ -83,7 +83,7 @@ __impl__ =
   证据落数据路径的是**测量**：它多收一个槽位 `$evidence Environment`，明说"这次测量属于哪个案子"。
   两者分开，规则里才没有人把任意一次调用钉到案子的数据路径上。
 - **`__impl__` 是判定**。它是 `bool`，跑完就是结果：真合规、假不合规。这条规则跑出来是
-  `Ok(true)`——量出来恰好 5，够门槛。
+  `$ok true`——量出来恰好 5，够门槛。
 - **条件是它自己的函数，拿什么比由它的参数给**。`distance_ge` 问的是"距离至少到没到门槛"，门槛由
   `$threshold` 给——`threshold = 5` 是这条规则自己的选择，换个案子换个门槛，写的还是同一个
   函数。规则想有几个条件、想怎么组合（`<<` 给参数、定义复用、模块拆开），都是写程序的事。
@@ -146,23 +146,27 @@ the_case = case_at_1230 << case_env
 ```python
 from compliance import is_compliant
 
-verdict = is_compliant("rule_distance.viba", environ)   # -> Result[bool]
+verdict = is_compliant("rule_distance.viba", environ)   # -> 声明的 InterpretResult（viba 数据）
 ```
 
-- 规则给出 `bool`，判定就是它：`Ok(True)` / `Ok(False)`。
-- 给出的不是 `bool`，是 `VibaProgramErr`（"a verdict is a bool"）。
+- 规则给出 `bool`，判定就是它：`$ok true` / `$ok false`（`verdict.by_tag("$ok")` 读出来的那个叶子）。
+- 给出的不是 `bool`：这一次运行答的还是一个值，所以这一层当场拒绝（`compliance.Error`，
+  "a verdict is a bool"）—— 那是**交进来的文件不是规则**，不是这次运行停在哪一步，所以它不装在
+  `InterpretResult` 里，而是抛出来。
 - 规则里某一步没人实现，则是**递延**：`interpret` 的 `$err InterpretError` 里那一支
-  `$not_implemented_err UnderlyingOpErr`（Python 侧是 `UnderlyingOpErr`，`error.tag` 是
-  `$not_implemented_err`）。判定还没发生，这次规则不归这台机器跑完。它带着 `$module_path` /
+  `$not_implemented_err UnderlyingOpErr`（读它先读 `$err`，再读 `$not_implemented_err` 那一支）。
+  判定还没发生，这次规则不归这台机器跑完。它带着 `$module_path` /
   `$func_name`（哪条数据路径上的哪个定义）与 `$call`——`$call` 是**这次调用本身**、按它写下来的样子
   （可执行的那份），所以工单可以照它直接写出来，不必再跑一次。`record_run` 在这种情形下什么都不记进
   备份——没发生的判定不留下调用。
 - 规则编不过、没有 `__impl__`、`$env` 没给……是 `$viba_program_err ProgramErr`；某一步的实现抛了、
-  给出了没有叶子的东西，是 `$underlying_viba_op_err UnderlyingOpErr`。两者 Python 侧都从
-  `interpret` 的 `$err` 里取（`VibaProgramErr` / `UnderlyingOpErr`），`msg` 一句话说清是什么事。
+  给出了没有叶子的东西，是 `$underlying_viba_op_err UnderlyingOpErr`。两者的 `$msg` 一句话说清
+  是什么事；`$call` 是那次调用本身，写成能再跑的形式。
 - 一次运行的环境（`Environment`、storage、`get_func`）怎么给，见
   [`viba-interpreter.md`](viba/viba-interpreter.md)：
-  `is_compliant` 就是 `interpret` 加"读出那个 bool"。
+  `is_compliant` 就是 `interpret` 加"读出那个 bool"—— 它的答案就是 `interpret` 答的那份数据
+  （`$ok <bool>` 或 `$err <why it stopped>`），只有"这文件不是规则"与"这存储记不了调用"两件事是
+  这一层自己的拒绝（`compliance.Error`）。
 
 ## 4. 不纯的那一步：调用
 
@@ -224,9 +228,9 @@ value =
 
 | 运行 | 量距离 | 条件看到 | 结果 |
 |---|---|---|---|
-| 第一次（没有备份） | 量了一次：受害人 (0,0) 与嫌疑人 (3,4) | 5 | `Ok(true)` |
-| `record_run` | 回放刚量过的那份 | 5 | `Ok(true)`，并把这次调用记进备份 |
-| 之后每一次（有备份） | **一次都不走**，读备份里的 5 | 5 | `Ok(true)` |
+| 第一次（没有备份） | 量了一次：受害人 (0,0) 与嫌疑人 (3,4) | 5 | `$ok true` |
+| `record_run` | 回放刚量过的那份 | 5 | `$ok true`，并把这次调用记进备份 |
+| 之后每一次（有备份） | **一次都不走**，读备份里的 5 | 5 | `$ok true` |
 
 把备份留下来的是**一次专门的运行**：
 
@@ -241,7 +245,7 @@ record_run("rule_distance.viba", environ)   # 跑一遍，把它量过的调用�
 那条不纯的路一次都不走，判定仍是同一个。
 
 **换一个案子**（比如 12:10 那一刻，嫌疑人在 (0,3)）：呈证写成 `case_at_1210.viba`，规则里
-`case_env` 换成 `args.env.sub_env << args.env << "case_at_1210"`——量出来 3，判定 `Ok(false)`。名字换了，
+`case_env` 换成 `args.env.sub_env << args.env << "case_at_1210"`——量出来 3，判定 `$ok false`。名字换了，
 环境与证据也跟着换到 `root/case_at_1210` 下面，两起案子不会互相踩到对方的记录。
 
 ## 6. 句柄一览
@@ -249,7 +253,7 @@ record_run("rule_distance.viba", environ)   # 跑一遍，把它量过的调用�
 判定与测量（[`compliance/judge.py`](compliance/judge.py)）：
 
 ```python
-is_compliant(rule_file, environ) -> Ok[bool] | InterpretError   # 跑规则，读它的判定
+is_compliant(rule_file, environ) -> InterpretResult  # 跑规则，读它的判定（声明的数据）
 record_run(rule_file, environ)                                # 跑一遍，并把量过的调用记进备份
 measure(environ, name, given, compute, evidence=None)          # 量一次：有结果就回放，没有就量并存
 ```

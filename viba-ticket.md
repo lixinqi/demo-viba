@@ -328,12 +328,13 @@ TicketProgress = AppendOnlyList[TicketStage]
 - `$viba_program_err`：这次调用或者这个环境根本跑不起来；
 - `$environment_api_invalid_argument_err`：环境自己的 api 收不下给它的东西。
 
-和只写**选中的那一支**（`$ok VibaNode | $err InterpretError` 的居民就是一支），所以一篇停下来了的
+和只写**选中的那一支**（`$ok Any | $err InterpretError` 的居民就是一支），所以一篇停下来了的
 记录上没有任何 `$ok`，一次答完了的尝试上也没有 `$err`；两支都写下来的东西不是这个和的居民。读的
 时候 `by_tag` 问另一支会报「设计里没有这个地址」，读的人把这当成「没有这一支」—— 不是错误，因为
 「没答」本来就是结果能说的两件事之一。
 
-停下的那一支写的是**那个积的全部字段**（`tickets.an_error`）：`UnderlyingOpErr` 两支写
+这个过程答的就是 viba 那份数据（`viba/interpret_result.viba`），这一层原样存下来
+（`tickets.a_result`）：一支一支、字段都在。停下的那一支里，`UnderlyingOpErr` 两支写
 `$msg`、`$module_path`、`$full_qualified_func_name` 与 `$call`（那次调用本身，还是能再跑的形式 ——
 norm 定义内部坏掉的那种停法 `$module_path` 与 `$full_qualified_func_name` 会空着，因为那是解释器在
 跑一份生成程序时报的，它没有一个「哪一步」可指；原因本身在 `$msg` 里），`$viba_program_err` 写 `$msg` 与 `$stack`，
