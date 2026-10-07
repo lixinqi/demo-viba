@@ -114,40 +114,45 @@ InterpretError =
 UnderlyingOpErr =
     Object
   * $msg str                                    # 一句话，开头就是原因
-  * $module_path str                            # 哪条数据路径上的哪个定义
-  * $func_name str                              # 要的那个名字
+  * $module_path str                            # 这一步声明在哪个模块（读成路径）
+  * $full_qualified_func_name str               # 这一步的整名（模块 + 它在那儿叫的名字）
   * $call (Any <- $env Env)                     # 这次调用本身，按它写下来的样子（环境还没给）
 ```
 
-`$module_path` 与 `$func_name` 说的是**停在哪一步**，它们正是宿主（跑 `interpret` 的那个程序）从
-`get_func(module_path, func_name)` 收到的两个参数：
+`$module_path` 与 `$full_qualified_func_name` 说的是**停在哪一步**，它们正是宿主（跑 `interpret`
+的那个程序）从 `get_func(module, name)` 收到的两个名字（`viba-interpreter.md`
+「`get_func` 与 `full_qualified_func_name`」）：
 
-- **`$module_path` 是这一步的数据路径**：这一步跑在的那份子环境，在 store 里的路径就是它。这份
-  程序里五步各在自己的子环境里执行，所以是 `root/c0`、`root/c1`、…；同一个定义换条数据路径就是
-  另一步；
-- **`$func_name` 是这一步要的名字**（这里是 `b_step`）—— A 的能力表里没有的那一个。
+- **`$module_path` 是这一步声明在哪个模块**，读成路径：`b_step` 写在 `service_b.viba` 里，所以是
+  `/service_b`；
+- **`$full_qualified_func_name` 是它的整名**：`service_b.b_step` —— A 的能力表里没有的那一个名字。
 
-数据路径不决定这一步由哪个服务进程算（那由谁的能力表里有 `$func_name` 决定），它只说数据放在
-哪：这一步的结果写在它下面，停下时写下的那份文件也在它下面（第 3 节）—— 接手的服务进程照着这条
-数据路径就知道该往哪写。
+**这一步跑在哪条数据路径上**不在这两个名字里：那是给它的那个 environment 的数据路径
+（`env.storage.cur_storage_path`），宿主从环境上读。这一层把它记在自己那一侧：报告里的 `path` 就是
+它（这里是 `root/c1`），写下的那份文件也落在它下面（第 3 节）—— 接手的服务进程照着这条数据路径
+就知道该往哪写。同一个模块的两条数据路径是同一批步骤、两次计算。
 
-`$call` 是**这次调用本身**，按它写下来的样子：`__dyn_call__ << "b_step" << 9`——名字加写在链上的
-实参，各自带着写下来的 tag。它是可序列化数据，**给一个环境就是执行它**，所以照它就能把这次调用
-再做一遍。环境不在它里面：给环境才是跑这次调用，接手的服务进程自己造一份。
+`$call` 是**这次调用本身**，按它写下来的样子：`__dyn_call__ << "service_b.b_step" << 9`——整名加
+写在链上的实参。它是可序列化数据，**给一个环境就是执行它**，所以照它就能把这次调用再做一遍：名字
+按最后一个点切开，前面是模块、后面是它在那儿叫的名字。环境不在它里面：给环境才是跑这次调用，
+接手的服务进程自己造一份。
 
 `$msg` 是**为什么停**：一句话，开头就是原因——这里是 `no implementation`，也就是"这个进程的能力表
 里没有这个名字"。
 
 服务进程把这些写成一行 JSON 报给调度：`service` 是哪一个服务进程报的，`phase` 是它在补账还是
 在跑程序（第 4 节），`result` 是这一行的种类（这里是 `not_my_duty`，就是第 2 节那支递延），
-`path` 就是 `$module_path`，`func_name` 就是 `$func_name`，`reason` 就是 `$msg`，
+`path` 是这次调用跑在哪条数据路径上（宿主从环境上读来的），`func_name` 是它要的那个名字，
+`module_path` 与 `full_qualified_func_name` 就是上面那两步的 viba 字段，`reason` 就是 `$msg`，
 `call` 是这份递延写成文件的样子（第 3 节），`api` 是这个进程这一回经手的每一次调用
 （`recorded` 留下的记录：哪条数据路径、是算的还是回放的、结果是什么）：
 
 ```json
 {"service": "a", "phase": "run", "api": [{"path": "root/c0", "computed": true, "value": 9}],
  "result": "not_my_duty", "reason": "no implementation", "path": "root/c1",
- "func_name": "b_step", "call": "value =\n  $call (__dyn_call__ << \"b_step\" << 9)\n  * $result nil\n"}
+ "func_name": "b_step", "module_path": "/service_b",
+ "full_qualified_func_name": "service_b.b_step",
+ "call": "value =\n  $call (__dyn_call__ << \"service_b.b_step\" << 9)\n  * $result nil\n"}
 ```
 
 ## 3. viba 代码加数据路径
@@ -157,21 +162,22 @@ UnderlyingOpErr =
 - **viba 代码**：文件的内容 —— 一个定义 `value`，两个成员：`$call`（这次调用本身，就是递延里那一
   份，可执行的那份）和 `$result`（它给出的值，还没人算过的时候写 `nil`）；
 - **数据路径**：它的位置 —— 停下这一步的那条数据路径 `<数据路径>`，文件名就是它要的那个名字
-  `<api>`（就是 `$func_name`）。
+  `<api>`（就是报告里的 `func_name`）。
 
 ```viba
 # <数据路径>/call/<api>.viba
 value =
-  $call (__dyn_call__ << "b_step" << 9)  # 这次调用本身
-  * $result nil                          # 它给出的值，还没算出来
+  $call (__dyn_call__ << "service_b.b_step" << 9)  # 这次调用本身
+  * $result nil                                    # 它给出的值，还没算出来
 ```
 
 两部分各管一半，五件事因此各归各位：
 
 | 想知道什么 | 在哪 |
 |---|---|
-| 哪一步 | 数据路径：那一段 `<数据路径>`（就是 `$module_path`） |
-| 要哪个名字 | 数据路径：文件名 `<api>`（就是 `$func_name`） |
+| 哪一步 | 数据路径：那一段 `<数据路径>`（报告里的 `path`），加上这份代码的名字
+（`$module_path` 与 `$full_qualified_func_name`） |
+| 要哪个名字 | 数据路径：文件名 `<api>`（报告里的 `func_name`） |
 | 要做哪次调用 | viba 代码里的 `$call`（可执行的那份，实参都在里面） |
 | 还缺什么 | viba 代码里那个还是 `nil` 的 `$result`，以及这条数据路径上还没有的结果文件 `<数据路径>/value.viba` |
 | 结果落在哪 | 同一条数据路径下的 `<数据路径>/value.viba`，`replayed` 读写的文件（第 4 节） |
@@ -207,8 +213,8 @@ value =
 
 - **停下那一步的那份文件**：`$call` 加还没填的 `$result`，调度把它写在停下的数据路径上 ——
   `<数据路径>/call/<api>.viba`，例如 `root/c1/call/b_step.viba`；
-- **这一轮的记录**：`failure/round-<k>.viba`，写着这一轮 A 和 B 各停在哪一步（`$module_path`、
-  `$func_name`、`$msg`），以及上面那份文件在哪（`$call_path`）。
+- **这一轮的记录**：`failure/round-<k>.viba`，写着这一轮 A 和 B 各停在哪一步（`$path`、
+  `$func_name`、`$reason`），以及上面那份文件在哪（`$call_path`）。
 
 下一轮读这些 `call/` 就是在补上一轮欠的：工单里已经填好 `$result` 的照它回放，还没填的现在把
 `$call` 跑一遍。算出的结果落在这次调用自己的数据路径下（`<数据路径>/value.viba`），那正是

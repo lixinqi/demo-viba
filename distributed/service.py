@@ -3,10 +3,14 @@
 A distributed program is one viba file whose steps are calls no single service
 implements: each service has its own api, and a run stops at the first call that is
 not its own, answering `UnderlyingOpErr` under the `$not_implemented_err` tag. That
-error names the step (`$module_path`, `$func_name`) and the call itself, as data and in
-a form that can be run again (`$call`: viba's runnable call — the name and the
-arguments, the environment left out). The scheduler writes that call into the store the
-services share as viba code: a file with one definition, `value`, holding `$call` and
+error names the step the way viba names one (`viba-interpreter.md`): `$module_path` is
+the module the step is declared in, as a path (`service_b` is `/service_b`),
+`$full_qualified_func_name` is its whole name (`service_b.b_step`), and `$call` is the
+same call as data, in a form that can be run again (the whole name and the arguments,
+the environment left out). **Where the call ran is not in those two names** — that is
+the data path of the environment the step is handed, and this layer's own report and
+work orders carry it (`Service.deferred`). The scheduler writes that call into the store
+the services share as viba code: a file with one definition, `value`, holding `$call` and
 `$result` (`nil` until someone answers it), written under the storage path the run
 stopped at (`<storage path>/call/<api>.viba`, the api it asks for being the file name).
 Anyone whose capability table has `<api>` can take the call from there and answer it:
@@ -18,12 +22,13 @@ round's run goes on from. Re-running is continuing.
 
 `Service` is one process's side of that:
 
-- `get_func` is the capability table the interpreter sees. A call of this service's
-  api is served by its own implementation — every implementation goes through
-  `recorded`, which is `replayed`: the first run computes the result and records it,
-  every later run replays it. A call of another service's api is served from the
-  store when the store already holds that call's result (that is how a run passes a
-  step it cannot compute); with nothing stored the result is None, and the run stops.
+- `get_func` is the capability table the interpreter sees, asked by the step's two
+  names (`get_func(module, func_name)`). A step of this service's api is served by its
+  own implementation — every implementation goes through `recorded`, which is
+  `replayed`: the first run computes the result and records it, every later run replays
+  it. Any other step of the program is served from the store when the store already
+  holds **that call's** result (that is how a run passes a step it cannot compute); with
+  nothing stored the service says so itself, and the run stops with the deferral.
 - `answer_pending` is the other half: every call the store holds under this service's
   api names, with `$result` still `nil`, is run now — the call as the stopped run wrote
   it, given an environment at its own storage path — so that the next round's runs find
@@ -31,9 +36,11 @@ round's run goes on from. Re-running is continuing.
 - `run_program` runs the program once and reports what came out.
 
 The report is one JSON line on stdout — the scheduler reads it. A run that stopped
-reports the failure state of the round as the viba source of the work order
-(`$call <the call> * $result nil`), which the scheduler writes at the storage path the
-run stopped at: that is what the next round answers.
+reports `path` (where the call ran), `func_name` (the name it asks for), the step's two
+viba names (`module_path`, `full_qualified_func_name`) and the failure state of the round
+as the viba source of the work order (`$call <the call> * $result nil`), which the
+scheduler writes at the storage path the run stopped at: that is what the next round
+answers.
 """
 
 import argparse
@@ -42,14 +49,14 @@ from pathlib import Path
 
 from viba import serialize
 from compliance import (call_of, call_viba_data, read_call, record_call,
-                        result_of)
+                        result_of, the_call)
 from compliance.storage import CALL_SEGMENT
 from viba.interpret import (SNAPSHOT_NAME, Environment, EnvironmentCompute,
                             EnvironmentStorage, exec, interpret, read_snapshot,
                             replayed, viba_data)
 from viba.reflect import VibaNode, access as reflect_access
-from viba.type import (FAILURE_TAG, NOT_IMPLEMENTED_TAG, Err, Ok,
-                       UnderlyingOpErr, VibaProgramErr)
+from viba.type import (FAILURE_TAG, NOT_IMPLEMENTED_TAG, REASON_NO_IMPLEMENTATION,
+                       Err, Ok, UnderlyingOpErr, VibaProgramErr)
 
 # The path the program's own environment is. Every call the program makes is given a
 # child of it (`root/c0`, `root/c1`, ...), and that child's path is the call's storage
@@ -58,20 +65,41 @@ from viba.type import (FAILURE_TAG, NOT_IMPLEMENTED_TAG, Err, Ok,
 ROOT = "root"
 
 
-def environ_at(module_path: str, store, compute=None, viba_path=None) -> Environment:
+def environ_at(path: str, store, compute=None, viba_path=None) -> Environment:
     """An environment at a store path: the path a call's result and the work orders
     for that call are read and written through.
 
     `compute` is left out for the two places that only touch the store (writing a
     work order, reading one back): they never run anything.
     """
-    return Environment(EnvironmentStorage(module_path, None, str(store)), compute,
+    return Environment(EnvironmentStorage(path, None, str(store)), compute,
                        str(viba_path) if viba_path else None)
 
 
 def storage_path(environ: Environment) -> str:
     """The store path this environment is: the path of the call that runs there."""
     return environ.storage.cur_storage_path
+
+
+def module_path_of(module: str) -> str:
+    """The module a step is declared in, read as a path: `service_a` is `/service_a`."""
+    return "/" + module.replace(".", "/") if module else ""
+
+
+def not_implemented(module: str, func_name: str, where: dict) -> UnderlyingOpErr:
+    """`$not_implemented_err` for a step said from inside an implementation.
+
+    A host that says so from `get_func` need not fill anything in — the run fills the
+    step in for it. Said from inside the implementation it cannot: the run hands that
+    error back as it is. So the step is written here the way the run writes it
+    (`viba-interpreter.md`): the module as a path, and the whole name as the data the
+    call carries. `where` is what only this service knows — where the call ran, and the
+    call as this layer writes it (a work order): the run hands a step its environment,
+    not its path (viba-interpreter.md「`get_func` 与 `full_qualified_func_name`」).
+    """
+    return UnderlyingOpErr(REASON_NO_IMPLEMENTATION, module_path_of(module),
+                           where["full_name"], viba_data(where["call"]),
+                           tag=NOT_IMPLEMENTED_TAG)
 
 
 def leaf_value(value):
@@ -120,34 +148,69 @@ class Service:
         # the call, the environment first, one result out. Built from this service,
         # so that an implementation can record what it computed (`recorded`).
         self.api = api(self)
+        # 这一次运行停在哪一步：两个名字之外的东西 —— 这次调用跑在哪条数据路径上、
+        # 它作为工作单长什么样。viba 不再把数据路径交给 `get_func`，宿主在实现里从环境上读
+        # （`from_the_store`），这里就是把它记下来给报告用。
+        self.deferred = None
         # One note per api call this process answered: whether it computed the
         # result or replayed it, and what the result was. A report carries them.
         self.notes = []
 
     # ---- the capability table the interpreter sees ----
 
-    def get_func(self, module_path, func_name):
-        """This service's implementation of the call, or the store's result, or None.
+    def get_func(self, module, func_name):
+        """This service's step, or the store's result for it, or a deferral.
 
-        None is what makes the run stop and answer the deferral; the store's result
-        is what lets the run pass a step this service does not implement.
+        The run asks by the step's two names (`get_func(module, func_name)`,
+        viba-interpreter.md): the module it is declared in as it was imported
+        (`service_a`), and the name it has there (`a_step`). A step this service's api has
+        is its own.
+
+        Any other step of this program is answered from the store when the store already
+        holds **that call's** result — and which call that is, its data path, is on the
+        environment the step is handed: the two names say which step, not where it ran.
+        With nothing stored the step is a deferral, said here (`not_implemented`), with
+        what only this service knows: where the call ran (`self.deferred`), for the
+        report and the work order.
+
+        A name that is no step of this program at all answers `None`: the run says it
+        (`__dyn_call__` at a program's own name, say), and this service has nothing to
+        name it with.
         """
         own = self.api.get(func_name)
         if own is not None:
             return own
-        stored = self.stored_answer(module_path)
-        if stored is None:
+        if not self.is_a_step_of_the_program(module):
             return None
-        return lambda environ, *args: stored
 
-    def stored_answer(self, module_path):
-        """The result the store holds for the call at this path, or None."""
-        return read_snapshot(environ_at(module_path, self.store))
+        def from_the_store(environ, *args):
+            """This call's recorded result, or the deferral that hands it on."""
+            stored = read_snapshot(environ)
+            if stored is not None:
+                return stored
+            whole = f"{module}.{func_name}" if module else func_name
+            self.deferred = {"path": storage_path(environ), "module": module,
+                             "func_name": func_name, "full_name": whole,
+                             "call": the_call(whole, *args)}
+            raise not_implemented(module, func_name, self.deferred)
 
-    def environ_at(self, module_path, compute=True) -> Environment:
+        return from_the_store
+
+    def is_a_step_of_the_program(self, module: str) -> bool:
+        """Is that module one of this program's api files? A step is declared in one.
+
+        The api files sit beside the program (`service_a.viba` next to
+        `interleaved.viba`), which is where the run looks them up too
+        (`Service.viba_path`).
+        """
+        if not module:
+            return False
+        return (Path(self.viba_path) / f"{module}.viba").is_file()
+
+    def environ_at(self, path, compute=True) -> Environment:
         """The environment for a call at this path, in this process: its storage is that
         path, and its compute side is this service's `get_func`."""
-        return environ_at(module_path, self.store,
+        return environ_at(path, self.store,
                           EnvironmentCompute(self.get_func) if compute else None,
                           self.viba_path)
 
@@ -179,14 +242,14 @@ class Service:
         run replays.
         """
         answered = []
-        for module_path, func_name, call in self.pending():
-            environ = self.environ_at(module_path)
+        for path, func_name, call in self.pending():
+            environ = self.environ_at(path)
             the_call = call_of(call)
             result = answer_the_call(the_call, environ)
             if not isinstance(result, Ok):
                 raise RuntimeError(f"{func_name!r} did not answer: {result!r}")
             record_call(environ, func_name, the_call, result.ok_value)
-            answered.append({"path": module_path, "func_name": func_name,
+            answered.append({"path": path, "func_name": func_name,
                              "value": leaf_value(result.ok_value)})
         return answered
 
@@ -202,11 +265,11 @@ class Service:
             func_name = file.stem
             if func_name not in self.api:
                 continue
-            module_path = file.parent.parent.relative_to(self.store).as_posix()
-            call = read_call(self.environ_at(module_path, compute=False), func_name)
+            path = file.parent.parent.relative_to(self.store).as_posix()
+            call = read_call(self.environ_at(path, compute=False), func_name)
             if call is None or result_of(call)[1]:
                 continue
-            found.append((module_path, func_name, call))
+            found.append((path, func_name, call))
         return found
 
     # ---- the run phase ----
@@ -219,6 +282,7 @@ class Service:
         implementation broke (`failed`), or a program or environment that cannot run
         at all (`program_err`).
         """
+        self.deferred = None
         result = interpret(self.program, self.environ_at(ROOT))
         report = {"service": self.name, "phase": "run", "api": self.notes}
         if isinstance(result, Ok):
@@ -226,9 +290,15 @@ class Service:
             return report
         error = result.error
         if isinstance(error, UnderlyingOpErr) and error.tag == NOT_IMPLEMENTED_TAG:
+            where = self.deferred or {}
+            handed_over = where["call"] if where.get("call") is not None else error.call
             report.update(result="not_my_duty", reason=error.msg,
-                          path=error.module_path, func_name=error.func_name,
-                          call=call_text(error.call))
+                          path=where.get("path", error.module_path),
+                          func_name=where.get("func_name",
+                                              error.full_qualified_func_name),
+                          module_path=error.module_path,
+                          full_qualified_func_name=error.full_qualified_func_name,
+                          call=call_text(handed_over))
         elif isinstance(error, UnderlyingOpErr) and error.tag == FAILURE_TAG:
             report.update(result="failed", msg=error.msg, reason=error.msg,
                           path=error.module_path or None)

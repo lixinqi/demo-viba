@@ -1,9 +1,13 @@
-"""章节里的 viba 代码块：读到的每一块都要编得过。
+"""章节里的 viba 代码块：读到的每一块都要编得过；还有那份设计文件。
 
 `viba-compliance.md`、`viba-distributed.md`、`distributed/README.md` 与 `demo/distributed/` 下四份
 README 里的 ```viba 块是写给别人照抄的，一块编不过就是在教一个错。viba 仓库那边的自检
 （`viba/parser.py` 的 `__main__`）只查它自己那几份文档；这两层搬到这个仓库以后，它们的 viba
 代码块归这个套件查。
+
+另外查 [`viba_ticket/ticket_design.viba`](../viba_ticket/ticket_design.viba)：它编得过，而且它
+写的成员就是 `ticket_system/` 里写票据、写进度的那两份 python 用的那一批名字 —— 设计文件与代码
+说的是同一件事，两处对不上就是有一处过时了。
 
     python3 tests/test_documents.py
 """
@@ -18,19 +22,28 @@ sys.path.insert(0, str(ROOT / "viba"))
 
 from interpreter_support import Checks
 
+from viba import viba_ast
 from viba.parser import check_definition_names, parse_source
+
+# 票据与进度的设计。它不是一个 ```viba 块，是这个仓库里的一份 viba 文件。
+DESIGN = "viba_ticket/ticket_design.viba"
 
 checks = Checks("documents")
 check = checks.check
 
 # 这两层自己的文档。哪一份暂时没有 ```viba 块也留着：以后补上一块，这里就查得到。
 DOCUMENTS = ("viba-compliance.md",
+             "ticket_system/README.md",
              "viba-distributed.md",
+             "viba-ticket.md",
              "distributed/README.md",
              "demo/distributed/README.md",
              "demo/distributed/naive/README.md",
              "demo/distributed/delivery/README.md",
-             "demo/distributed/reading/README.md")
+             "demo/distributed/reading/README.md",
+             "viba_ticket/README.md",
+             "viba_ticket/two_handlers/README.md",
+             "viba_ticket/add_one/README.md")
 
 
 def viba_blocks(text: str) -> list:
@@ -67,9 +80,45 @@ def one_document(name: str) -> int:
     return len(blocks)
 
 
+def members_of(body) -> list:
+    """The members of one parsed type definition, in written order.
+
+    A product is built as a chain of two-element products, so this walks it and keeps
+    what is tagged; the head (`Object`, `AppendOnlyList[…]`) is not a member.
+    """
+    out = []
+
+    def walk(node):
+        if isinstance(node, viba_ast.Product):
+            walk(node.left)
+            walk(node.right)
+        elif hasattr(node, "tag"):
+            out.append(node.tag)
+
+    walk(body)
+    return out
+
+
+def the_design():
+    """设计文件与代码说的是同一批成员：谁改了名字，这里就红。"""
+    from ticket_system import progress, tickets
+
+    tree = {one.name: one for one in
+            (parse_source((ROOT / DESIGN).read_text(encoding="utf-8")) or [])}
+    check(sorted(tree) == ["Ticket", "TicketProgress", "TicketStage"],
+          f"the design names the three types: {sorted(tree)!r}")
+    check(tuple(members_of(tree["Ticket"].body)) == tickets.TICKET_TAGS,
+          f"a ticket's members are the ones the code writes: "
+          f"{members_of(tree['Ticket'].body)!r} != {tickets.TICKET_TAGS!r}")
+    check(tuple(members_of(tree["TicketStage"].body)) == progress.STAGE_TAGS,
+          f"a stage's members are the ones the code writes: "
+          f"{members_of(tree['TicketStage'].body)!r} != {progress.STAGE_TAGS!r}")
+
+
 def main() -> int:
     total = sum(one_document(name) for name in DOCUMENTS)
     check(total > 0, "the documents still hold viba blocks to check")
+    the_design()
     return checks.report()
 
 

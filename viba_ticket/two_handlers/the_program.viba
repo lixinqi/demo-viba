@@ -1,0 +1,23 @@
+# 这次调用要跑的那段程序：四个步子，两个服务轮流做。
+#
+# 票据的 `$call` 就是这个模块（`(__dyn_call__ << "the_program" << <输入>)`）：两个角色都把这个名字
+# 算作自己答的，跑的是同一段程序、同一份存储，只是各自多带一步自己那半边的实现。
+#
+# 每个调用跑在自己的子环境里 —— 程序路径下的 `c0`、`c1`、……，那个路径就是这次调用的存储路径：谁做
+# 了这一步就把答案记在那儿，下一轮跑的人（可能是另一个进程）从那儿回放，不再做第二次。
+#
+# 四个步子串成一条链：每一步的实参是上一步的答案。所以两个服务只能轮流来，没有哪一个能自己跑完 ——
+# 这正是票据的进度里会出现「a 停一步、b 停一步、a 再停一步、b 做完」的原因。
+__decl__ = int <- $env Env <- $x int
+
+args = __get_args__ << __decl__
+
+import service_a
+import service_b
+
+c0 = service_a.a_add << $env ($sub_env << args.env << "c0") << $x args.x
+c1 = service_b.b_scale << $env ($sub_env << args.env << "c1") << $x c0
+c2 = service_a.a_add << $env ($sub_env << args.env << "c2") << $x c1
+c3 = service_b.b_scale << $env ($sub_env << args.env << "c3") << $x c2
+
+__impl__ = c3

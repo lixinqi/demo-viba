@@ -40,7 +40,7 @@ class DistanceHost:
         self.measured = []
         self.judged = []
 
-    def get_func(self, module_path, func_name):
+    def get_func(self, module, func_name):
         if func_name == "at_1230":
             return self.at_1230
         if func_name == "measure_distance":

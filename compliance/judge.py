@@ -141,7 +141,7 @@ def given_of(call):
 
 
 def result_of(call):
-    """(value, True) when this call instance carries a measurement, else (None, False)."""
+    """(value, True) when this stored call carries an answer, else (None, False)."""
     node = _member(call, RESULT_TAG)
     if node is None:
         return None, False

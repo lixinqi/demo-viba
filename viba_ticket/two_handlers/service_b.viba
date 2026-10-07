@@ -1,0 +1,9 @@
+# 服务 B 的 api：B 的进程实现的那一步。
+#
+# 形状与 `service_a.viba` 一样：签名 + 提示，实现是 B 的进程自己的事。`the_program.viba` 调用
+# 这个名字。
+b_scale =
+    int
+  <- $env Env
+  <- $x int
+  <- { 抽一个倍数乘上去，把答案记在这次调用的存储路径下 }

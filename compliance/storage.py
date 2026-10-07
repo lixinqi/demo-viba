@@ -1,9 +1,9 @@
-"""The store a rule runs against: its own writes, and the call instance backup.
+"""The store a rule runs against: its own writes, and the call backup.
 
-A *call instance* is a call written down as viba data — which call it was (its
-arguments fixed) and what it answered (`$measured`, `nil` until something
-answers it) — kept as a file in the store. The one a run is handed was backed up
-before it started (that is what makes the run repeatable); so:
+A *call* is a call written down as viba data — which call it was (its arguments
+fixed) and what it answered (`$call` and `$result`, `nil` until something answers
+it) — kept as a file in the store. The one a run is handed was backed up before it
+started (that is what makes the run repeatable); so:
 
 - reading `call/...` looks at what this run wrote first, and at the backup
   second — a run replays the evidence it was given, and can still write its own;
@@ -19,7 +19,7 @@ from typing import Optional
 
 from viba.interpret import EnvironmentStorage
 
-# A call instance is named `call/<name>` (that is what
+# A call is named `call/<name>` (that is what
 # `judge.call_path` builds) and lands in the store under the storage's
 # own path, so the segment is what tells one from an ordinary snapshot:
 # `<storage-path>/call/<name>.viba`.
@@ -28,7 +28,7 @@ CALL_SEGMENT = "call"
 
 
 class CallStorage(EnvironmentStorage):
-    """A store whose call instance files are backed up: read the backup, write your own."""
+    """A store whose call files are backed up: read the backup, write your own."""
 
     __slots__ = ("call_root_dir",)
 
@@ -45,7 +45,7 @@ class CallStorage(EnvironmentStorage):
         return self.sub_storage[name]
 
     def is_call(self, file_path: str) -> bool:
-        """Is this store path a call instance? (`root/call/distance.viba` is.)"""
+        """Is this store path a call? (`root/call/distance.viba` is.)"""
         parts = [part for part in str(file_path).split("/") if part]
         return CALL_SEGMENT in parts
 
@@ -63,9 +63,9 @@ class CallStorage(EnvironmentStorage):
         super().write_text(file_path, content)
 
     def record_text(self, file_path: str, content: str) -> None:
-        """Write into the backup itself: how a call instance comes to be backed up."""
+        """Write into the backup itself: how a call comes to be backed up."""
         if self.call_root_dir is None:
-            raise RuntimeError("this storage has no call instance backup to record into")
+            raise RuntimeError("this storage has no call backup to record into")
         path = self._store_path(file_path, self.call_root_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)

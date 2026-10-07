@@ -224,9 +224,9 @@ def _the_store_is_the_memory(store: Path):
           f"the answer is the bool the store holds: {again['outcome']!r}")
 
 
-def _the_answer(store: Path, module_path: str):
+def _the_answer(store: Path, path: str):
     """store 里某个数据路径上落下的结果。"""
-    return service.leaf_value(service.read_snapshot(service.environ_at(module_path, store)))
+    return service.leaf_value(service.read_snapshot(service.environ_at(path, store)))
 
 
 if __name__ == "__main__":

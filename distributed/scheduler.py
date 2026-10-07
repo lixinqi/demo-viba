@@ -176,7 +176,7 @@ def the_services_deferral(deferred: list, name: str):
     for one in deferred:
         if one["service"] == name:
             return viba_ast.ProductChain([
-                viba_ast.Tagged("$module_path", viba_ast.Constant(one["path"])),
+                viba_ast.Tagged("$path", viba_ast.Constant(one["path"])),
                 viba_ast.Tagged("$func_name", viba_ast.Constant(one["func_name"])),
                 viba_ast.Tagged("$reason", viba_ast.Constant(one["reason"] or "")),
                 viba_ast.Tagged("$call_path", viba_ast.Constant(

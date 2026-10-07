@@ -129,13 +129,16 @@ InterpretError =
 UnderlyingOpErr =
     Object
   * $msg str                                     # one sentence, the reason first
-  * $module_path str                             # the definition, at that storage path
-  * $func_name str                               # the name the step asks for
+  * $module_path str                             # the module the step is declared in, as a path
+  * $full_qualified_func_name str                # the step's whole name there
   * $call (Any <- $env Env)                      # the call itself, as it was written
 ```
 
-- `$module_path` is the call's **storage path** — the path of the child environment the
-  call was given (`root/c1` here); `$func_name` is the name it asks for (`b_step` here),
+- `$module_path` is the **module the step is declared in**, as a path (`/service_b` here);
+  `$full_qualified_func_name` is its whole name (`service_b.b_step` here), and the
+  **storage path** the call ran at is not in either — the environment carries it, and this
+  layer reports it as `path` (`root/c1` here); the name it asks for is `func_name`
+  (`b_step` here),
   the one this process has no implementation for.
 - `$call` is **the call itself**, as it was written: `__dyn_call__ << "b_step" << 9`, the
   name and the arguments written on it, each with the tag it was written with. It is
@@ -163,8 +166,8 @@ Each part carries half, so five things have their place:
 
 | What you want to know | Where it is |
 |---|---|
-| which step | the storage path: the `<storage path>` piece (the `$module_path`) |
-| which api | the storage path: the file name `<api>` (the `$func_name`) |
+| which step | the storage path: the `<storage path>` piece (the report's `path`) |
+| which api | the storage path: the file name `<api>` (the report's `func_name`) |
 | which call to make | the viba code: `$call` (runnable; the arguments are in it) |
 | what is still missing | the viba code: the nil `$result`; and the result file under that storage path, `<storage path>/value.viba` |
 | where the result goes | `<storage path>/value.viba` under the same storage path — the file `replayed` reads and writes |
@@ -199,7 +202,7 @@ the results of two runs and the schedule still says `ok`.
 | `Service.get_func` | A call of this service's api goes to its own implementation; a call of another service's api is replayed from the store when the store already holds that call's result; with neither the result is `None`, and the run stops with the deferral |
 | `Service.pending` | The work orders under this service's api names that have no answer yet |
 | `run_service(name, api, argv)` | One service process's `__main__`: `--store`, `--phase answer\|run`, `--program` |
-| `environ_at(module_path, store, ...)` | An environment at a store path — what a tool reads the store through |
+| `environ_at(path, store, ...)` | An environment at a store path — what a tool reads the store through |
 | `distributed.scheduler.main` | The schedule: the rounds, filling in what is owed and running the program, the failure state, `--rounds` (default 1024) |
 | `python3 -m distributed.scheduler --store <dir> --program <file> --service <name>=<module>` | Run one schedule; one JSON line per round on stdout, the last one the outcome |
 

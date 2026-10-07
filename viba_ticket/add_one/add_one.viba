@@ -1,0 +1,12 @@
+# 加一：这个示例的 norm 代码。
+#
+# 它是个普通的叶子：`__decl__` 收 `$env Env` 与一个 int，`__impl__` 答加上 1 的那个数。
+# 这个示例要演的不是它算什么，而是**这次调用的答案落在哪儿**：答它的角色
+# （`demo/ticket_examples/add_one.py`）把答案经 `replayed` 记在这次调用自己的存储路径下
+# （`<票据的 storage_path>/value.viba`），于是同一张票据第二次被尝试时，这个模块不再进，
+# 答案从那份快照里回放。
+__decl__ = int <- $env Env <- $x int
+
+args = __get_args__ << __decl__
+
+__impl__ = builtin.add << $env args.env << $x args.x << $y 1

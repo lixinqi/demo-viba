@@ -1,0 +1,54 @@
+# 票据与进度的设计：一次要跑的调用，和它被处理过的每一次。
+#
+# 这两份数据写在文件系统上，写它们、读它们的那份 python 在 `ticket_system/` 里
+# （`tickets.py` 与 `progress.py`）；这个文件说的是它们**长什么样**——每个成员是什么意思、谁钉住谁。
+# 怎么用、为什么这么设计，在 [`../viba-ticket.md`](../viba-ticket.md) 那一章与
+# [`../ticket_system/README.md`](../ticket_system/README.md) 里。
+#
+# --- 票据 ---
+#
+# 一张票据落在它自己的目录里（`<票据路径>/<uid>/ticket.viba`），一个定义 `value` 装着它的全部。
+#
+# 它先说的是**一次运行落在哪三个版本上**，所以前三对成员都是「哪个 repo、哪一个提交」：
+# `$viba_interpreter_repo_commit_id` 是跑这次调用的那个**解释器**（读 viba、跑 viba 的那份
+# python 包）在哪一个提交上；`$norm_repo_commit_id` 是这次调用要跑的 viba 代码所在的 **norm repo**
+# 在哪一个提交上（`$norm_repo_path` 指到代码所在的那层目录，提交就是它所在那个 repo 的提交——
+# 代码可以就是这个 repo 里的一层，见 `ticket_system/repo.py`）；
+# `$handler_name2api_repo_commit_id` 是**每个角色**自己的模块在哪一个提交上，一个角色一项。
+#
+# 然后是这次调用本身与它的落处：`$call` 是能再跑一次的那种形式（环境还空着，给它一个环境就是跑
+# 它），名字是 norm repo 里的一段代码（`__dyn_call__ << "<整名>" << <实参>`：名字当数据走，所以
+# 这份数据从哪个模块都读得起来）；`$storage_path` 是这次调用跑在的那个 viba 环境的存储根，它写的
+# 每一份快照都落在那里；`$time` 是写下它的时刻。
+Ticket =
+    Object
+  * $ticket_uid str
+  * $viba_interpreter_repo_commit_id str        # viba interpreter itself
+  * $viba_interpreter_repo_path str
+  * $VIBA_PATH list[str]
+  * $norm_repo_commit_id str                    # norm repo, written in viba
+  * $norm_repo_path str
+  * $call (Any <- Env)                          # invoke the viba code of the norm repo
+  * $storage_path str
+  * $handler_name2api_repo_commit_id dict[str, str]
+  * $time datetime
+
+# --- 进度 ---
+#
+# 一张票据的进度不是文件，是它旁边那个目录（`<票据路径>/<uid>/progress/`）：**一次尝试一个文件**
+# （`<写入时刻>-<处理进程名>.viba`），一个定义 `value` 装着那一次尝试。先写的永远还在，后来的只是
+# 又加一个文件，所以「只增不删」不需要锁；一张票据做完了没有，读的是这一整份进度里**有没有**一条
+# `$ok`（`ticket_system/progress.py` 的 `answered`）。
+#
+# `$interpret_result` 是那一次尝试得到的答案（`InterpretError` 的那一支里，`$msg` 开头就是原因，
+# `$module_path` 与 `$full_qualified_func_name` 是停在哪一步：那一步声明在哪个模块、它的整名，
+# `$call` 是那次调用本身）。停在别人做的那一步是 `$not_implemented_err`，它是轮换的那一手：
+# 谁写的这一篇，下一手就该别人（`viba-ticket.md` 第 2 节与第 5 节）。
+TicketProgress = AppendOnlyList[TicketStage]
+
+TicketStage =
+    Object
+  * $ticket_uid str
+  * $handler_name str                           # agent name or non-agent process name
+  * $interpret_result InterpretResult
+  * $time datetime

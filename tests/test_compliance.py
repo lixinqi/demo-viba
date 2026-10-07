@@ -91,19 +91,19 @@ def _deferral(tmp: Path):
     class Partial(DistanceHost):
         """同一个宿主，少一件差事。"""
 
-        def get_func(self, module_path, func_name):
+        def get_func(self, module, func_name):
             if func_name == "distance_ge":
                 return None
-            return DistanceHost.get_func(self, module_path, func_name)
+            return DistanceHost.get_func(self, module, func_name)
 
     env, host = environ_for(tmp / "deferral-store", tmp / "deferral-backup",
                             host=Partial())
     verdict = is_compliant(str(RULE), env)
     check(_not_implemented(verdict),
           f"a rule whose predicate nobody implements answers the deferral: {verdict!r}")
-    check(verdict.func_name == "distance_ge" and
-          verdict.module_path.startswith("root/tmp_"),
-          f"the step names the call that stopped, temp path and all: {verdict!r}")
+    check(verdict.full_qualified_func_name == "rule_distance.distance_ge"
+          and verdict.module_path == "/rule_distance",
+          f"the step names the module and the whole name that stopped: {verdict!r}")
     check(verdict.msg == "no implementation", f"and why: {verdict.msg!r}")
     check(host.measured == [((0, 0), (3, 4))],
           f"the measurement before it still happened: {host.measured}")
@@ -127,10 +127,10 @@ def _a_deferral_carries_the_work(tmp: Path):
 
     # 少掉量距离那一手：结果里带着同一次调用，可执行的写法
     class NoMeasure(DistanceHost):
-        def get_func(self, module_path, func_name):
+        def get_func(self, module, func_name):
             if func_name == "measure_distance":
                 return None
-            return DistanceHost.get_func(self, module_path, func_name)
+            return DistanceHost.get_func(self, module, func_name)
 
     env, host = environ_for(tmp / "work-deferred", host=NoMeasure())
     duty = is_compliant(str(RULE), env)
@@ -290,7 +290,7 @@ def _refusals(tmp: Path):
     check(isinstance(failed_verdict, UnderlyingOpErr)
           and failed_verdict.tag == FAILURE_TAG and "raised" in failed_verdict.msg,
           f"a measurement that blows up -> UnderlyingOpErr: {failed_verdict!r}")
-    check(failed_verdict.func_name == "measure_distance",
+    check(failed_verdict.full_qualified_func_name.endswith(".measure_distance"),
           f"and the failure names the step: {failed_verdict!r}")
 
     plain = CallStorage("root", None, str(tmp / "no-backup-store"))
