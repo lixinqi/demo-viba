@@ -5,21 +5,21 @@ judgment, so there is no judgment layer here: `is_compliant` runs the file and
 reads the `bool` it answered.
 
 What a rule cannot do by itself is the impure part: a measurement reads a clock,
-a service, a die. That goes through `measure`, which is where the *Prepare*
-lives:
+a service, a die. That goes through `measure`, which is where the *call* lives:
 
-    value = measure(environ, "distance", call, compute)
+    value = measure(environ, "distance", given, compute)
 
-- the call it measures is a Prepare — the arguments fixed, the result declared —
-  kept as a file in the storage (`compliance/storage.py`);
-- a Prepare that already carries a measured value is **replayed**: `compute` is
-  not called at all;
-- one that does not is measured now, and the value is written into this run's
+- the call it measures is kept as a file in the storage (`compliance/storage.py`):
+  the call itself, in the form that can be run again (`the_call`), and `$result`, what
+  it answered;
+- a call that already carries a result is **replayed**: `compute` is not called at
+  all;
+- one that does not is measured now, and the result is written into this run's
   store, where the next run finds it.
 
-`prepare_run` is the other direction: run a rule and *record* the Prepares it
-measured into the backup, which is how a case comes to be prepared once and
-judged as often as wanted.
+`record_run` is the other direction: run a rule and *record* the calls it measured
+into the backup, which is how a case comes to be measured once and judged as often as
+wanted.
 """
 
 from pathlib import Path
@@ -28,14 +28,19 @@ from viba import viba_ast
 from viba.interpret import (Environment, VibaProgramErr, InterpretResult, Ok, interpret,
                               viba_data, read_snapshot, write_snapshot)
 from viba.reflect import VibaNode, access as reflect_access, by_tag
-from compliance.storage import PREPARE_PREFIX, PREPARE_SEGMENT
+from viba.type import Err
+from compliance.storage import CALL_PREFIX, CALL_SEGMENT
 
 CALL_TAG = "$call"
-MEASURED_TAG = "$measured"
+RESULT_TAG = "$result"
 
-__all__ = ["is_compliant", "measure", "prepare_viba_data", "prepare_path", "prepare_run",
-           "read_prepare", "record_prepare", "measured_of", "call_of",
-           "CALL_TAG", "MEASURED_TAG"]
+# The interpreter's own name for a call that can be run again: a recorded call is
+# written `__dyn_call__ << "<name>" << <what it was given>` (viba-interpreter.md).
+DYN_CALL = "__dyn_call__"
+
+__all__ = ["is_compliant", "measure", "the_call", "call_viba_data", "call_path",
+           "record_run", "read_call", "record_call", "result_of", "call_of",
+           "given_of", "CALL_TAG", "RESULT_TAG", "DYN_CALL"]
 
 
 # ----------------------------------------------------------------------
@@ -44,17 +49,18 @@ __all__ = ["is_compliant", "measure", "prepare_viba_data", "prepare_path", "prep
 
 
 def is_compliant(rule_file: str, environ: Environment) -> InterpretResult:
-    """Result[bool]: run the rule and read its verdict.
+    """`Ok(bool)`, or the error this run stopped with.
 
-    A run that reaches an operator this host does not implement answers the
-    deferral instead of a verdict — the judgment is somebody else's to finish.
+    A run that reaches an operator this host does not implement answers the stop
+    instead of a verdict — the judgment is somebody else's to finish — and that stop
+    is handed back as it is.
     """
     answer = interpret(rule_file, environ)
-    if not isinstance(answer, Ok):
-        return answer
+    if isinstance(answer, Err):
+        return answer.error
     leaf = reflect_access.leaf(answer.ok_value)
     if isinstance(leaf, VibaProgramErr):
-        return VibaProgramErr(f"the rule answered no verdict: {leaf.err_msg}")
+        return VibaProgramErr(f"the rule answered no verdict: {leaf.msg}")
     if not isinstance(leaf.ok_value, bool):
         return VibaProgramErr(f"the rule answered {type(leaf.ok_value).__name__}, "
                    f"and a verdict is a bool")
@@ -62,45 +68,81 @@ def is_compliant(rule_file: str, environ: Environment) -> InterpretResult:
 
 
 # ----------------------------------------------------------------------
-# The Prepare: the call, and what it measured
+# The call: which call it was, and what it answered
 # ----------------------------------------------------------------------
 
 
-def prepare_path(name: str) -> str:
-    """Where a Prepare lives in the store."""
-    return f"{PREPARE_PREFIX}{name}"
+def call_path(name: str) -> str:
+    """Where a call lives in the store."""
+    return f"{CALL_PREFIX}{name}"
 
 
-def read_prepare(environ: Environment, name: str):
-    """The stored Prepare `name` as viba data, or None when there is none."""
-    return read_snapshot(environ, prepare_path(name))
+def read_call(environ: Environment, name: str):
+    """The stored call `name` as viba data, or None when there is none."""
+    return read_snapshot(environ, call_path(name))
 
 
-def prepare_viba_data(call, measured=None):
-    """A Prepare: `$call` is the prepared call, `$measured` what it answered.
+def the_call(name: str, *given):
+    """A call in the form that can be run again: `__dyn_call__ << "<name>" << …`.
 
-    Unmeasured is written `nil`, so a Prepare reads the same whether or not the
-    measurement happened yet."""
+    What is written on it is what the call was given, as it was written, one
+    argument each; the environment is not part of a call — giving it one is what
+    running it is — so an environment handed in as an argument is not kept here. This
+    is the form `UnderlyingOpErr.call` carries (`viba-interpreter.md`).
+    """
+    node = viba_ast.Partial(viba_ast.TypeRef(DYN_CALL), viba_ast.Constant(name))
+    for one in given:
+        if one is not None:
+            node = viba_ast.Partial(node, _piece(one))
+    return viba_data(node)
+
+
+def call_viba_data(call, result=None):
+    """A call as it is kept: `$call` is the call itself, `$result` what it answered.
+
+    Unanswered is written `nil`, so a call reads the same whether or not it has been
+    answered yet."""
     return viba_ast.ProductChain([
         viba_ast.Tagged(CALL_TAG, _piece(call)),
-        viba_ast.Tagged(MEASURED_TAG,
-                        _piece(measured) if measured is not None else viba_ast.Nil()),
+        viba_ast.Tagged(RESULT_TAG,
+                        _piece(result) if result is not None else viba_ast.Nil()),
     ])
 
 
-def record_prepare(environ: Environment, name: str, call, measured=None) -> None:
-    """Write the Prepare into this run's store."""
-    write_snapshot(environ, prepare_viba_data(call, measured), prepare_path(name))
+def record_call(environ: Environment, name: str, call, result=None) -> None:
+    """Write the call into this run's store."""
+    write_snapshot(environ, call_viba_data(call, result), call_path(name))
 
 
-def call_of(prepare):
-    """The prepared call of a stored Prepare, or None."""
-    return _member(prepare, CALL_TAG)
+def call_of(call):
+    """The runnable call a stored call holds, or None."""
+    return _member(call, CALL_TAG)
 
 
-def measured_of(prepare):
-    """(value, True) when this Prepare carries a measurement, else (None, False)."""
-    node = _member(prepare, MEASURED_TAG)
+def given_of(call):
+    """What a stored call was given, as it was written; None when it was given nothing.
+
+    The call is `__dyn_call__ << "<name>" << <what it was given>`: one argument is
+    that argument itself, several are kept as the product they were written as, tags
+    and all. The name is not among them — that is the call, not what it was given.
+    """
+    node = getattr(call, "data", None)
+    written = []
+    while isinstance(node, viba_ast.Partial):
+        written.append(node.argument)
+        node = node.function
+    given = list(reversed(written))[1:]
+    if not given:
+        return None
+    pieces = [one.type if isinstance(one, viba_ast.Tagged) else one for one in given]
+    if len(pieces) == 1:
+        return viba_data(pieces[0])
+    return viba_data(viba_ast.ProductChain(pieces))
+
+
+def result_of(call):
+    """(value, True) when this call instance carries a measurement, else (None, False)."""
+    node = _member(call, RESULT_TAG)
     if node is None:
         return None, False
     leaf = reflect_access.leaf(node)
@@ -109,69 +151,70 @@ def measured_of(prepare):
     return leaf.ok_value, True
 
 
-def measure(environ: Environment, name: str, call, compute, evidence: Environment = None):
-    """The measured value of the prepared call `name`.
+def measure(environ: Environment, name: str, given, compute,
+            evidence: Environment = None):
+    """The measured value of the call `name`, given what it was given.
 
     `environ` is the environment the call runs under: any environment does, a
     temporary one included, because a call has no storage path of its own. `evidence`
-    is the environment the Prepare belongs to — the case's, whose path is stable
-    — and without it the Prepare goes under the call's path, where a temporary
-    one can never be found again.
+    is the environment the call belongs to — the case's, whose path is stable — and
+    without it the call goes under the call's own path, where a temporary one can
+    never be found again.
 
-    Replayed when the Prepare carries a value; measured by `compute(call)` — the
-    impure step — only when there is nothing to replay, and then written into
-    this run's store. The call the Prepare names wins over the one written here:
-    the prepared call is the one that was fixed."""
+    Replayed when the call carries a result; measured by `compute(given)` — the
+    impure step — only when there is nothing to replay, and then written into this
+    run's store. What the stored call was given wins over what is handed in here: the
+    call that was fixed is the one that counts."""
     store_env = evidence if isinstance(evidence, Environment) else environ
-    prepare = read_prepare(store_env, name)
-    value, recorded = measured_of(prepare)
-    if recorded:
+    stored = read_call(store_env, name)
+    value, answered = result_of(stored)
+    if answered:
         return value
-    prepared = call_of(prepare)
-    if prepared is None:
-        prepared = viba_data(call)
-    value = compute(prepared)
-    record_prepare(store_env, name, prepared, value)
+    fixed = given_of(call_of(stored)) if stored is not None else None
+    if fixed is None:
+        fixed = given
+    value = compute(fixed)
+    record_call(store_env, name, the_call(name, fixed), value)
     return value
 
 
 # ----------------------------------------------------------------------
-# Preparing: a run whose Prepares are recorded as the backup
+# Recording: a run whose calls are recorded as the backup
 # ----------------------------------------------------------------------
 
 
-def prepare_run(rule_file: str, environ: Environment) -> InterpretResult:
-    """Run the rule, recording into the backup every Prepare it measured.
+def record_run(rule_file: str, environ: Environment) -> InterpretResult:
+    """Run the rule, recording into the backup every call it measured.
 
     Nothing is recorded by a run that stopped: a deferral is not an answer, and
-    a case is not prepared by a judgment that never happened.
+    a case is not measured by a judgment that never happened.
     """
     storage = getattr(environ, "storage", None)
     record = getattr(storage, "record_text", None)
-    if record is None or getattr(storage, "prepare_root_dir", None) is None:
-        return VibaProgramErr("this storage cannot record a Prepare: give a PreparedStorage "
-                   "with a prepare_root_dir")
+    if record is None or getattr(storage, "call_root_dir", None) is None:
+        return VibaProgramErr("this storage cannot record a call: give a "
+                   "CallStorage with a call_root_dir")
     answer = is_compliant(rule_file, environ)
     if not isinstance(answer, Ok):
         return answer
-    for path in _run_prepares(storage):
+    for path in _run_calls(storage):
         text = storage.read_text(path)
         if text is not None:
             record(path, text)
     return answer
 
 
-def _run_prepares(storage):
-    """The store paths of the Prepares this run wrote, `.viba` and all.
+def _run_calls(storage):
+    """The store paths of the calls this run wrote, `.viba` and all.
 
-    A store path is what `storage.read_text` takes: `<storage path>/prepare/...`,
+    A store path is what `storage.read_text` takes: `<storage path>/call/...`,
     relative to the store root."""
     store = Path(storage.store_root_dir)
     root = store / Path(*[part for part in str(storage.cur_storage_path).split("/") if part])
     if not root.is_dir():
         return []
     return [str(path.relative_to(store)) for path in sorted(root.rglob("*.viba"))
-            if PREPARE_SEGMENT in path.parts]
+            if CALL_SEGMENT in path.parts]
 
 
 # ----------------------------------------------------------------------

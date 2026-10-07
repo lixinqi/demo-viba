@@ -1,0 +1,10 @@
+# The call of the demo case, backed up before any run: the call itself, in the form
+# that can be run again, and it already carries what it answered. A run handed this
+# directory as its call backup replays the 5 instead of measuring again.
+value =
+    $call (__dyn_call__ << "measure_distance" << (
+        $victim ($x 0 * $y 0)
+      * $suspect ($x 3 * $y 4)
+      * $at "12:30"
+    ))
+  * $result 5

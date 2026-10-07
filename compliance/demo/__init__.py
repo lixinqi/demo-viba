@@ -2,6 +2,6 @@
 
 `rule_distance.viba` is the rule, `case_at_1230.viba` its witness, and
 `host.py` the implementations the rule's functions stand for — including the
-one measurement, which is not pure and therefore prepared. The chapter is
+one measurement, which is not pure and therefore a call the run records. The chapter is
 `viba-compliance.md`.
 """

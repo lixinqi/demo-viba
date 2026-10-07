@@ -4,14 +4,14 @@ Every round starts every service process at once, twice:
 
 - the **answer** phase: each service fills in what the round before left for it (a
   stopped run leaves viba code under the call's storage path,
-  `<storage path>/prepare/<api>.viba` — `service.py` says what is in it), so that
+  `<storage path>/call/<api>.viba` — `service.py` says what is in it), so that
   every run of the next phase starts from the same store;
 - the **run** phase: each service runs the distributed program once and reports what
   came out.
 
 A round that ends with a deferral is saved — this round's failure state — into the
 store the rounds share: the deferral itself as viba code at the storage path the run
-stopped at (`<storage path>/prepare/<api>.viba`), and the round as a record
+stopped at (`<storage path>/call/<api>.viba`), and the round as a record
 (`failure/round-<k>.viba`). The next round's answer phase reads those, so the front of
 the program moves on: a call deferred once is answered before the next round runs.
 
@@ -40,7 +40,7 @@ import sys
 from pathlib import Path
 
 from viba import viba_ast
-from compliance import prepare_path
+from compliance import call_path
 from distributed import service
 from viba.interpret import snapshot_path, write_snapshot
 
@@ -149,21 +149,21 @@ def the_deferral(report: dict) -> dict:
     """The failure state a stopped run reports, as the scheduler reads it."""
     return {"service": report["service"], "path": report["path"],
             "func_name": report["func_name"], "reason": report["reason"],
-            "prepare": report["prepare"]}
+            "call": report["call"]}
 
 
 def save_the_failure(services: list, store, number: int, deferred: list) -> None:
     """This round's failure state, into the store the rounds share.
 
-    Each deferral becomes viba code where the run stopped: the file the run handed
-    over (its `$call` fixed, its `$measured` still nil), written under the call's
-    storage path (`<storage path>/prepare/<api>.viba`). The round itself becomes a
+    Each deferral becomes viba code where the run stopped: the call the run handed
+    over (written as it can be run again, its `$result` still nil), written under the
+    call's storage path (`<storage path>/call/<api>.viba`). The round itself becomes a
     record, `failure/round-<number>.viba`, naming every call that stopped it.
     """
     for one in deferred:
         environ = service.environ_at(one["path"], store)
         environ.storage.write_text(
-            snapshot_path(environ, prepare_path(one["func_name"])), one["prepare"])
+            snapshot_path(environ, call_path(one["func_name"])), one["call"])
     record = viba_ast.ProductChain(
         [viba_ast.Tagged("$round", viba_ast.Constant(number))]
         + [viba_ast.Tagged(f"${name}", the_services_deferral(deferred, name))
@@ -179,8 +179,8 @@ def the_services_deferral(deferred: list, name: str):
                 viba_ast.Tagged("$module_path", viba_ast.Constant(one["path"])),
                 viba_ast.Tagged("$func_name", viba_ast.Constant(one["func_name"])),
                 viba_ast.Tagged("$reason", viba_ast.Constant(one["reason"] or "")),
-                viba_ast.Tagged("$prepare", viba_ast.Constant(
-                    f"{one['path']}/prepare/{one['func_name']}.viba")),
+                viba_ast.Tagged("$call_path", viba_ast.Constant(
+                    f"{one['path']}/call/{one['func_name']}.viba")),
             ])
     return viba_ast.Nil()
 

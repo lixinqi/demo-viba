@@ -2,17 +2,19 @@
 
 A distributed program is one viba file whose steps are calls no single service
 implements: each service has its own api, and a run stops at the first call that is
-not its own, answering the deferral (`NotMyDutyException`) instead — which names the
-storage path (`$step`) and the argument (`$call`). The scheduler writes that into the
-store the services share as viba code: a file with one definition, `value`, holding
-`$call` (the argument the step was given) and `$measured` (the result, `nil` until it
-is filled in), written under the storage path the run stopped at
-(`<storage path>/prepare/<api>.viba`, the api it asks for being the file name).
-Anyone whose capability table has `<api>` can take the step from there and fill the
-result in: `measure` writes it into `$measured`, and the implementation's `recorded`
-writes it under that storage path as the snapshot `replayed` reads
-(`<storage path>/value.viba`) — which is what the next round's run goes on from.
-Re-running is continuing.
+not its own, answering `UnderlyingOpErr` under the `$not_implemented_err` tag. That
+error names the step (`$module_path`, `$func_name`) and the call itself, as data and in
+a form that can be run again (`$call`: viba's runnable call — the name and the
+arguments, the environment left out). The scheduler writes that call into the store the
+services share as viba code: a file with one definition, `value`, holding `$call` and
+`$result` (`nil` until someone answers it), written under the storage path the run
+stopped at (`<storage path>/call/<api>.viba`, the api it asks for being the file name).
+Anyone whose capability table has `<api>` can take the call from there and answer it:
+`answer_pending` runs that call again, giving it an environment at its own storage
+path, so the implementation is asked exactly the way the stopped run would have asked
+it; the implementation's `recorded` writes the answer under that storage path as the
+snapshot `replayed` reads (`<storage path>/value.viba`) — which is what the next
+round's run goes on from. Re-running is continuing.
 
 `Service` is one process's side of that:
 
@@ -21,34 +23,33 @@ Re-running is continuing.
   `recorded`, which is `replayed`: the first run computes the result and records it,
   every later run replays it. A call of another service's api is served from the
   store when the store already holds that call's result (that is how a run passes a
-  step it cannot compute); with nothing stored the result is None, and the run stops
-  with the deferral.
-- `answer_pending` is the other half: what the store holds under this service's api
-  names is computed now — the implementation handed the call's arguments the way a
-  run hands them (`_the_computation`) — so that the next round's runs find it.
+  step it cannot compute); with nothing stored the result is None, and the run stops.
+- `answer_pending` is the other half: every call the store holds under this service's
+  api names, with `$result` still `nil`, is run now — the call as the stopped run wrote
+  it, given an environment at its own storage path — so that the next round's runs find
+  the answer.
 - `run_program` runs the program once and reports what came out.
 
 The report is one JSON line on stdout — the scheduler reads it. A run that stopped
 reports the failure state of the round as the viba source of the work order
-(`$call $the_call * $measured nil`), which the scheduler writes at the storage path
-the run stopped at: that is what the next round answers.
+(`$call <the call> * $result nil`), which the scheduler writes at the storage path the
+run stopped at: that is what the next round answers.
 """
 
 import argparse
-import inspect
 import json
 from pathlib import Path
 
-from viba import serialize, viba_ast
-from compliance import (call_of, measure, measured_of, prepare_path,
-                             prepare_viba_data, read_prepare)
-from compliance.storage import PREPARE_SEGMENT
+from viba import serialize
+from compliance import (call_of, call_viba_data, read_call, record_call,
+                        result_of)
+from compliance.storage import CALL_SEGMENT
 from viba.interpret import (SNAPSHOT_NAME, Environment, EnvironmentCompute,
-                            EnvironmentStorage, NotMyDutyException, Ok,
-                            UnderlyingVibaOpFailed, VibaProgramErr, interpret,
-                            read_snapshot, replayed, snapshot_path, viba_data)
+                            EnvironmentStorage, exec, interpret, read_snapshot,
+                            replayed, viba_data)
 from viba.reflect import VibaNode, access as reflect_access
-from viba.viba_ast import convert_to_chain_style
+from viba.type import (FAILURE_TAG, NOT_IMPLEMENTED_TAG, Err, Ok,
+                       UnderlyingOpErr, VibaProgramErr)
 
 # The path the program's own environment is. Every call the program makes is given a
 # child of it (`root/c0`, `root/c1`, ...), and that child's path is the call's storage
@@ -78,83 +79,33 @@ def leaf_value(value):
     if not isinstance(value, VibaNode):
         return value
     leaf = reflect_access.leaf(value)
-    return leaf.err_msg if isinstance(leaf, VibaProgramErr) else leaf.ok_value
+    return leaf.msg if isinstance(leaf, VibaProgramErr) else leaf.ok_value
 
 
-def prepare_text(call) -> str:
-    """The work order's text: the call it was given, with `$measured` still nil.
+def call_text(call) -> str:
+    """The work order's text: the call, with `$result` still nil.
 
     This is the failure state a stopped run hands the scheduler, serialized as viba
-    source (`value = $call … * $measured nil`). The scheduler writes that text at the
+    source (`value = $call … * $result nil`). The scheduler writes that text at the
     storage path the run stopped at; it is a file a person, a model or another
     `interpret` can read.
     """
-    written = serialize.serialize(SNAPSHOT_NAME, viba_data(prepare_viba_data(call)))
+    written = serialize.serialize(SNAPSHOT_NAME, viba_data(call_viba_data(call)))
     if isinstance(written, VibaProgramErr):
-        raise RuntimeError(f"cannot write the work order: {written.err_msg}")
+        raise RuntimeError(f"cannot write the work order: {written.msg}")
     return written.ok_value
 
 
-def arguments_taken(implementation) -> int:
-    """How many arguments an implementation takes, the environment not counted.
+def answer_the_call(call, environ: Environment):
+    """Run `call` with `environ`: `Ok(its answer)`, or the error the run stopped with.
 
-    A run hands an implementation one value per argument of the call; a work order
-    keeps those arguments as one viba data, so this number is what says how to hand
-    them over again. 0 when the implementation takes the environment alone, 1 when
-    the `$call` is one argument, more when it has to be split apart. -1 when the
-    signature does not say how many — a callable without a readable one, or one
-    written `(environ, *args)` — and then the `$call` is handed over whole.
+    `call` is the call as the stopped run wrote it — a closure of type
+    `Any <- $env Env`, its environment left out — so running it is giving it one, and
+    `exec` takes that data as the call to run (`viba-interpreter.md`「把一次调用写成
+    可执行的」). The implementation is then asked exactly the way the stopped run would
+    have asked it, at that storage path, with the arguments the call was written with.
     """
-    try:
-        parameters = list(inspect.signature(implementation).parameters.values())
-    except (TypeError, ValueError):
-        return -1
-    if any(one.kind is inspect.Parameter.VAR_POSITIONAL for one in parameters):
-        return -1
-    counted = [one for one in parameters
-               if one.kind in (inspect.Parameter.POSITIONAL_ONLY,
-                               inspect.Parameter.POSITIONAL_OR_KEYWORD)]
-    return len(counted) - 1
-
-
-def the_arguments(prepared, count: int, func_name: str) -> tuple:
-    """The arguments a work order's `$call` holds, in the order they were written.
-
-    A call with several arguments keeps them as one product, each piece tagged with
-    the slot it went to (`call_viba_data`); a call with one argument keeps that
-    argument itself — a tagged product of its own among them — so it is handed over
-    whole and never split by its own size; a call that was given nothing but its
-    environment keeps `nil`, which is no argument at all. What the implementation
-    takes is what decides, and a call that cannot give it that many is refused:
-    only arguments that are viba data travel.
-    """
-    if count == 1:
-        return (prepared,)
-    pieces = _the_pieces(prepared)
-    if len(pieces) != count:
-        raise ValueError(
-            f"the implementation of {func_name!r} takes {count} arguments and the work "
-            f"order holds {len(pieces)}: only arguments that are viba data travel")
-    return tuple(pieces)
-
-
-def _the_pieces(prepared) -> list:
-    """The pieces of a written product, in written order — the value itself when it
-    is one piece, and nothing at all for a `$call` that is `nil`.
-
-    The product a work order stores is read back as the written chain it is, so it
-    is flattened the way the rest of viba flattens one (`convert_to_chain_style`):
-    a run of `*` is its pieces, and a branch inside one of them stays that piece and
-    is not split further.
-    """
-    piece = getattr(prepared, "data", None)
-    if piece is None or isinstance(piece, viba_ast.Nil):
-        return []
-    chain = convert_to_chain_style(piece)
-    if not isinstance(chain, viba_ast.ProductChain):
-        return [prepared]
-    return [viba_data(one.type if isinstance(one, viba_ast.Tagged) else one)
-            for one in chain.elements]
+    return exec(call, environ)
 
 
 class Service:
@@ -218,55 +169,44 @@ class Service:
     # ---- the answer phase ----
 
     def answer_pending(self):
-        """Answer what the store holds under this service's api names.
+        """Answer every call the store holds under this service's api names.
 
-        A work order that carries a measurement already is left alone: a result is
-        computed once, by whichever round reached it first.
+        A call that already carries a `$result` is left alone: a result is computed
+        once, by whichever round reached it first. What is run is the call itself, at
+        the storage path it stopped at, so this service's implementation is asked the
+        way the stopped run would have asked it; the answer is recorded into the same
+        file, and `recorded` also leaves it under that path as the snapshot the next
+        run replays.
         """
         answered = []
-        for module_path, func_name, prepare in self.pending():
+        for module_path, func_name, call in self.pending():
             environ = self.environ_at(module_path)
-            value = measure(environ, func_name, call_of(prepare),
-                            self._the_computation(environ, func_name),
-                            evidence=environ)
+            the_call = call_of(call)
+            result = answer_the_call(the_call, environ)
+            if not isinstance(result, Ok):
+                raise RuntimeError(f"{func_name!r} did not answer: {result!r}")
+            record_call(environ, func_name, the_call, result.ok_value)
             answered.append({"path": module_path, "func_name": func_name,
-                             "value": leaf_value(value)})
+                             "value": leaf_value(result.ok_value)})
         return answered
 
-    def _the_computation(self, environ, func_name):
-        """What `measure` computes with: this service's implementation, handed the
-        call's arguments — one value per argument, the environment first, the way a
-        run hands them (`_call_host`).
-
-        A work order keeps those arguments as one viba data, so how many the
-        implementation takes (`arguments_taken`) is what says how to hand them over
-        again (`the_arguments`). An implementation whose signature does not say how
-        many is handed the `$call` itself.
-        """
-        implementation = self.api[func_name]
-        count = arguments_taken(implementation)
-        if count < 0:
-            return lambda prepared: implementation(environ, prepared)
-        return lambda prepared: implementation(
-            environ, *the_arguments(prepared, count, func_name))
-
     def pending(self):
-        """(path, func_name, prepare) for the unmeasured work orders of this api.
+        """(path, func_name, call) for the unanswered calls of this api.
 
         A work order is a file under the call's own path
-        (`<path>/prepare/<func_name>.viba`) holding that call with `$measured` still
-        nil, so the file's place is the path and its name is the api it asks for.
+        (`<path>/call/<func_name>.viba`) holding that call with `$result` still nil,
+        so the file's place is the path and its name is the api it asks for.
         """
         found = []
-        for file in sorted(self.store.rglob(f"{PREPARE_SEGMENT}/*.viba")):
+        for file in sorted(self.store.rglob(f"{CALL_SEGMENT}/*.viba")):
             func_name = file.stem
             if func_name not in self.api:
                 continue
             module_path = file.parent.parent.relative_to(self.store).as_posix()
-            prepare = read_prepare(self.environ_at(module_path, compute=False), func_name)
-            if prepare is None or measured_of(prepare)[1]:
+            call = read_call(self.environ_at(module_path, compute=False), func_name)
+            if call is None or result_of(call)[1]:
                 continue
-            found.append((module_path, func_name, prepare))
+            found.append((module_path, func_name, call))
         return found
 
     # ---- the run phase ----
@@ -274,8 +214,8 @@ class Service:
     def run_program(self):
         """Run the distributed program once, in this process, and report it.
 
-        What came out is one of four: the result (`ok`), the deferral of a step this
-        service does not implement (the failure state of the round), a step whose
+        What came out is one of four: the result (`ok`), a step no service here
+        implements (`not_my_duty` — the failure state of the round), a step whose
         implementation broke (`failed`), or a program or environment that cannot run
         at all (`program_err`).
         """
@@ -283,16 +223,17 @@ class Service:
         report = {"service": self.name, "phase": "run", "api": self.notes}
         if isinstance(result, Ok):
             report.update(result="ok", value=leaf_value(result.ok_value))
-        elif isinstance(result, NotMyDutyException):
-            report.update(result="not_my_duty", reason=result.reason,
-                          path=result.step.module_path if result.step else None,
-                          func_name=result.step.func_name if result.step else None,
-                          prepare=prepare_text(result.call))
-        elif isinstance(result, UnderlyingVibaOpFailed):
-            report.update(result="failed", msg=result.msg, reason=result.reason,
-                          path=result.step.module_path if result.step else None)
+            return report
+        error = result.error
+        if isinstance(error, UnderlyingOpErr) and error.tag == NOT_IMPLEMENTED_TAG:
+            report.update(result="not_my_duty", reason=error.msg,
+                          path=error.module_path, func_name=error.func_name,
+                          call=call_text(error.call))
+        elif isinstance(error, UnderlyingOpErr) and error.tag == FAILURE_TAG:
+            report.update(result="failed", msg=error.msg, reason=error.msg,
+                          path=error.module_path or None)
         else:
-            report.update(result="program_err", msg=result.err_msg)
+            report.update(result="program_err", msg=error.msg)
         return report
 
 

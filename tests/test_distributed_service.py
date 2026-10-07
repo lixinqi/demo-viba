@@ -1,12 +1,11 @@
 """`distributed/service.py`：一套服务那一侧 —— 能力表、补账、跑一遍。
 
-实现拿到的实参是这一次调用的一个个实参，环境排在第一位，和运行那一侧一样（`_call_host` 一个实参
-交一份）。工单里留得下只有可序列化数据，几个实参写成一份带 tag 的积（`$call($x 1 * $y 2)`），一个
-实参就是那个值本身。补账时按实现自己的参数个数交：一个参数交整份 `$call`（它本身是个积也一样），
-几个参数就按书写次序拆开交 —— 实参里有宿主值的调用交不出那么多份，当场报错，而不是少交一份。
+补账不是自己拼实参，而是把工单里那份 `$call` 跑一遍（`exec` 收的就是那份可序列化数据）：实现拿到的
+实参因此和运行那一侧完全一样，一个个交、环境排在第一位（`_call_host` 一个实参交一份）。工单里留得下
+的只有可序列化数据，所以 `$call` 里的实参就是写下来的那些，tag 也在。
 
-`arguments_taken` 与 `the_arguments` 是这条规矩的两半；最后一个用例把它放回调度里跑一遍：两个实参
-的调用被别人停下、留成工单交回来，补账那一次必须交到两份实参。
+最后一个用例把它放回调度里跑一遍：两个实参的调用被别人停下、留成工单交回来，补账那一次要交到两份
+实参。
 
     python3 tests/test_distributed_service.py
 """
@@ -20,14 +19,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "viba"))
 
 from interpreter_support import Checks
 
 from distributed import service
-from distributed.service import Service, arguments_taken, the_arguments
+from distributed.service import Service
 
 from viba import viba_ast
-from compliance import measured_of, prepare_path, read_prepare
+from compliance import result_of, call_path, read_call, the_call
 from viba.interpret import snapshot_path, viba_data
 
 checks = Checks("distributed_service")
@@ -109,9 +109,6 @@ if __name__ == "__main__":
 
 
 def run(tmp: Path):
-    _how_many_arguments_an_implementation_takes()
-    _the_call_split_in_written_order()
-    _a_call_that_cannot_be_answered()
     _a_call_with_no_arguments(tmp)
     _a_single_argument_stays_one(tmp)
     _a_work_order_is_answered(tmp)
@@ -121,79 +118,14 @@ def run(tmp: Path):
 def the_work_order(store: Path, module_path: str, func_name: str, call):
     """把一份还没人补的工单写进 store —— 调度写它的那两行（`save_the_failure`）。"""
     environ = service.environ_at(module_path, store)
-    environ.storage.write_text(snapshot_path(environ, prepare_path(func_name)),
-                               service.prepare_text(call))
-
-
-def _how_many_arguments_an_implementation_takes():
-    """实现的签名说它要几个实参；说不出来的（没有签名，或者收可变个数的）交整份 `$call`。"""
-
-    def only_the_environment(environ):
-        return 0
-
-    def one(environ, x):
-        return x
-
-    def two(environ, x, y):
-        return x
-
-    def varying(environ, *args):
-        return args
-
-    check(arguments_taken(only_the_environment) == 0,
-          f"an implementation of the environment alone takes nothing: "
-          f"{arguments_taken(only_the_environment)}")
-    check(arguments_taken(one) == 1, f"one argument: {arguments_taken(one)}")
-    check(arguments_taken(two) == 2,
-          f"the environment is not counted: {arguments_taken(two)}")
-    check(arguments_taken(varying) == -1,
-          f"a varying number of arguments leaves the `$call` whole: "
-          f"{arguments_taken(varying)}")
-    check(arguments_taken(len) == 0,
-          f"one positional parameter is the environment, not an argument: "
-          f"{arguments_taken(len)}")
-    check(arguments_taken(dict.update) == -1,
-          f"and a callable whose signature cannot be read leaves the `$call` whole: "
-          f"{arguments_taken(dict.update)}")
-
-
-def _the_call_split_in_written_order():
-    """几个实参写成一份带 tag 的积：按书写次序拆开，tag 只说明它去了哪个位置。"""
-    call = viba_data(viba_ast.ProductChain([
-        viba_ast.Tagged("$x", viba_ast.Constant(1)),
-        viba_ast.Tagged("$y", viba_ast.Constant(2)),
-        viba_ast.Tagged("$z", viba_ast.Constant(3))]))
-    arguments = the_arguments(call, 3, "combine")
-    check([one.value for one in arguments] == [1, 2, 3],
-          f"the pieces come out in written order: {[one.value for one in arguments]!r}")
-
-    # 括号里写出来的分组是这一份积自己的结构（一个实参），不是两个实参：它留在原地。
-    grouped = viba_data(viba_ast.Product(
-        viba_ast.Tagged("$x", viba_ast.Constant(1)),
-        viba_ast.Product(viba_ast.Tagged("$y", viba_ast.Constant(2)),
-                         viba_ast.Tagged("$z", viba_ast.Constant(3)))))
-    pieces = the_arguments(grouped, 2, "combine")
-    check(len(pieces) == 2 and pieces[0].value == 1,
-          f"a branch stays one piece: {[len(pieces), pieces[0].value]!r}")
-
-
-def _a_call_that_cannot_be_answered():
-    """实参里有宿主值的调用留不了工单：当场报错，不少交一个实参。"""
-    call = viba_data(viba_ast.Constant(9))
-    try:
-        the_arguments(call, 2, "combine")
-    except ValueError as problem:
-        check("takes 2 arguments" in str(problem) and "holds 1" in str(problem),
-              f"too few arguments for the implementation is refused: {problem}")
-    else:
-        check(False, "a call with one argument for a two-argument implementation "
-                     "was handed over anyway")
+    environ.storage.write_text(snapshot_path(environ, call_path(func_name)),
+                               service.call_text(call))
 
 
 def _a_call_with_no_arguments(tmp: Path):
     """只有环境的调用：`$call` 是 nil，实现就收一个环境，不多收一个 nil。"""
     store = tmp / "none"
-    the_work_order(store, "root/c0", "now", None)
+    the_work_order(store, "root/c0", "now", the_call("now"))
     seen = []
 
     def the_api(owner: Service):
@@ -217,7 +149,7 @@ def _a_single_argument_stays_one(tmp: Path):
     pair = viba_data(viba_ast.ProductChain([
         viba_ast.Tagged("$left", viba_ast.Constant(1)),
         viba_ast.Tagged("$right", viba_ast.Constant(4))]))
-    the_work_order(store, "root/c0", "join", pair)
+    the_work_order(store, "root/c0", "join", the_call("join", pair))
     seen = []
 
     def the_api(owner: Service):
@@ -241,9 +173,8 @@ def _a_single_argument_stays_one(tmp: Path):
 def _a_work_order_is_answered(tmp: Path):
     """两个实参的工单：补账时两份实参都交到，结果落在这个数据路径下。"""
     store = tmp / "two"
-    call = viba_data(viba_ast.ProductChain([
-        viba_ast.Tagged("$x", viba_ast.Constant(4)),
-        viba_ast.Tagged("$y", viba_ast.Constant(2))]))
+    call = the_call("combine", viba_data(viba_ast.Constant(4)),
+                    viba_data(viba_ast.Constant(2)))
     the_work_order(store, "root/c0", "combine", call)
     seen = []
 
@@ -262,10 +193,10 @@ def _a_work_order_is_answered(tmp: Path):
     check(service.leaf_value(service.read_snapshot(
               service.environ_at("root/c0", store))) == 6,
           "and the answer is recorded where the call ran")
-    measured, it_is_measured = measured_of(
-        read_prepare(service.environ_at("root/c0", store), "combine"))
-    check(it_is_measured and measured == 6,
-          f"and the work order carries the measurement: {measured!r}")
+    result, it_is_answered = result_of(
+        read_call(service.environ_at("root/c0", store), "combine"))
+    check(it_is_answered and result == 6,
+          f"and the work order carries the answer: {result!r}")
 
 
 def _a_two_argument_call_kept_whole(tmp: Path):
@@ -276,7 +207,7 @@ def _a_two_argument_call_kept_whole(tmp: Path):
     (home / "two_api.viba").write_text(TWO_ARGUMENT_API)
     (home / "left_service.py").write_text(LEFT_SERVICE)
     (home / "right_service.py").write_text(RIGHT_SERVICE)
-    path = [str(REPO_ROOT), str(home)]
+    path = [str(REPO_ROOT / "viba"), str(REPO_ROOT), str(home)]
     if os.environ.get("PYTHONPATH"):
         path.append(os.environ["PYTHONPATH"])
     done = subprocess.run(

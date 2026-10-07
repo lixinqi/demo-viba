@@ -7,7 +7,7 @@ asked, which is how a test tells a replayed run from a measured one:
 - `witnessed` gets one entry per witness asked for — the facts of the case come
   through the host, not written into the witness file;
 - `measured` gets one entry per *measurement actually taken* — a run that
-  replayed its Prepare leaves it empty;
+  replayed its call leaves it empty;
 - `judged` gets one entry per verdict asked for, which every run does.
 """
 
@@ -27,7 +27,7 @@ WITNESS = Path(__file__).resolve().parent / "case_at_1230.viba"
 # Where they actually were, and when: what the implementation reads. Here a
 # table so the demo is short; a case reads a log, a database or a service — and
 # then that reading is not pure, so it is snapshotted under the case's own
-# storage path (`replayed`), the way the measurement is prepared.
+# storage path (`replayed`), the way the measurement is recorded as a call.
 FACTS = {"victim": (0, 0), "suspect": (3, 4)}
 MOMENT = "12:30"
 
@@ -69,13 +69,13 @@ class DistanceHost:
 
         `env` is the environment the call runs under — the rule hands a
         temporary one, since a call has no storage path of its own. `evidence` is the
-        case's environment, and that is where the Prepare is kept, so the
-        evidence says which case it belongs to: `root/case_at_1230/prepare/
+        case's environment, and that is where the call is kept, so the
+        evidence says which case it belongs to: `root/case_at_1230/call/
         measure_distance.viba`.
         """
-        def compute(prepared):
-            victim = _point(prepared, "victim")
-            suspect = _point(prepared, "suspect")
+        def compute(given):
+            victim = _point(given, "victim")
+            suspect = _point(given, "suspect")
             self.measured.append((victim, suspect))
             return int(round(((victim[0] - suspect[0]) ** 2
                               + (victim[1] - suspect[1]) ** 2) ** 0.5))

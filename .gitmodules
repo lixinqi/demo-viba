@@ -1,0 +1,4 @@
+[submodule "viba"]
+	path = viba
+	url = git@github.com:lixinqi/viba.git
+	branch = main

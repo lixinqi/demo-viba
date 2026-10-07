@@ -6,7 +6,7 @@
 #
 # A rule is a program: the environment in, a bool verdict out. Every step of it
 # is a definition of its own, so nothing nests; the step that is not pure (the
-# measurement) goes through `measure` and its answer becomes this case's Prepare
+# measurement) goes through `measure`, and what it answers becomes this case's call
 # in the storage (see viba-compliance.md).
 __decl__ = bool <- $env Env
 
@@ -24,7 +24,7 @@ measure_distance =
 	<- $case Case
 	<- {
 		how far apart the victim and the suspect were: not a pure function,
-		so the answer is prepared
+		so the answer is a call the run records
 	}
 
 distance_ge =
@@ -37,7 +37,7 @@ distance_ge =
 	}
 
 # this case's storage path: the witness is read under it, and this is where the
-# case's evidence — its Prepare — is kept
+# case's evidence — its call — is kept
 case_env = args.env.sub_env << args.env << "case_at_1230"
 
 # the witness: the three facts of that moment
@@ -45,7 +45,7 @@ the_case = case_at_1230 << case_env
 
 # the measurement of those facts. The call itself runs under a temporary
 # environment (a call has no storage path of its own), and is told where the evidence
-# goes: this case's storage path. Not pure, so what it answers becomes the Prepare.
+# goes: this case's storage path. Not pure, so what it answers becomes the call.
 distance = measure_distance << $env (args.env.tmp_env << args.env) << $evidence case_env << $case the_case
 
 # the rule's question: at least this far apart?

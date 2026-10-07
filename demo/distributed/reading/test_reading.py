@@ -28,6 +28,7 @@ str（`label.write`，写成文本）→ int（`length.count`，数文本多少�
 """
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -36,6 +37,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "viba"))
+# The service processes this suite starts must find the viba package too.
+os.environ["PYTHONPATH"] = os.pathsep.join(
+    [str(REPO_ROOT / "viba")] + ([os.environ["PYTHONPATH"]]
+                                 if os.environ.get("PYTHONPATH") else []))
 
 from interpreter_support import Checks
 
@@ -198,7 +204,7 @@ def _the_failure_state_is_in_the_store(store: Path, scheduled):
         for one in round_report["deferred"]:
             check(one["func_name"] in text and one["path"] in text,
                   f"round {number} names the call it stopped at: {text!r}")
-            order = store / one["path"] / "prepare" / f"{one['func_name']}.viba"
+            order = store / one["path"] / "call" / f"{one['func_name']}.viba"
             check(order.is_file(), f"and the work order is where it stopped: {order}")
 
 

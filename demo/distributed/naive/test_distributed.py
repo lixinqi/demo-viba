@@ -3,9 +3,10 @@
 两套服务各是一组 api 加一个 python 进程（A 的 api 只跑在 A 的进程里，B 的只跑在 B 的
 进程里）。`demo/distributed/naive/interleaved.viba` 是一份把两边 api 交错起来的程序：每一步的实参
 是上一步的结果，所以两个服务进程只能轮流接。一个进程执行到不属于自己的一步就停下，结果是
-`NotMyDutyException`（里面带着这一步的数据路径 `$step` 与它收到的实参 `$call`）；调度把这次停下
+`UnderlyingOpErr`（`tag` 是 `$not_implemented_err`，里面带着这一步的数据路径 `$module_path`、名字 `$func_name`
+与这次调用本身 `$call`）；调度把这次停下
 写进两个服务进程共享的 environment storage —— viba 代码落在这一步的数据路径下
-（`<数据路径>/prepare/<api>.viba`），这一轮再记一份 `failure/round-<k>.viba`。下一轮那套服务先
+（`<数据路径>/call/<api>.viba`），这一轮再记一份 `failure/round-<k>.viba`。下一轮那套服务先
 把它补上，结果落进同一个数据路径；停下过的运行再从 store 里回放出来接着往下走：**重跑即续跑**。
 
 跑它的是 `distributed` 这个包：[`distributed/service.py`](../../../distributed/service.py) 是一个服务
@@ -18,7 +19,7 @@
 每次同时启动两个进程，重复跑这份程序，轮次之间共用同一个 store。预期：
 
     1) 最后一轮某个进程上最终得到 OK（`{"outcome": "ok", ...}`，退出码 0）；
-    2) 最后一轮之前的每一轮，两个进程都是 NotMyDuty，而且停下的数据路径从不重复 —— 前面停过的
+    2) 最后一轮之前的每一轮，两个进程报的都是 `not_my_duty`，而且停下的数据路径从不重复 —— 前面停过的
        数据路径在下一轮开始前一定已经处理掉，所以再跑到那里只会回放，不会停第二次；
     3) 轮数有上限（`--rounds`，默认 1024），「已经停过的数据路径上又停一次」当场报成失败，服务进程
        起不来就报成 `broken` —— 不会死循环。
@@ -30,6 +31,7 @@ store 由这个套件造在临时目录里；计数的 `Checks` 还是用 `tests
 """
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -38,10 +40,15 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "viba"))
+# The service processes this suite starts must find the viba package too.
+os.environ["PYTHONPATH"] = os.pathsep.join(
+    [str(REPO_ROOT / "viba")] + ([os.environ["PYTHONPATH"]]
+                                 if os.environ.get("PYTHONPATH") else []))
 
 from interpreter_support import Checks
 
-from compliance import measured_of, read_prepare
+from compliance import result_of, read_call
 
 from demo.distributed.naive import PROGRAM, SERVICES
 from distributed import service
@@ -174,12 +181,12 @@ def _the_failure_state_is_in_the_store(store: Path, scheduled):
         for one in round_report["deferred"]:
             check(one["func_name"] in text and one["path"] in text,
                   f"round {number} names the call it stopped at: {text!r}")
-            order = store / one["path"] / "prepare" / f"{one['func_name']}.viba"
+            order = store / one["path"] / "call" / f"{one['func_name']}.viba"
             check(order.is_file(), f"and the work order is where it stopped: {order}")
             if round_report is not scheduled["rounds"][-1]:
-                answered, measured = measured_of(
-                    read_prepare(service.environ_at(one["path"], store), one["func_name"]))
-                check(measured and answered == _the_answer(store, one["path"]),
+                answered, has_answer = result_of(
+                    read_call(service.environ_at(one["path"], store), one["func_name"]))
+                check(has_answer and answered == _the_answer(store, one["path"]),
                       f"the next round answered {one['path']}: {answered!r}")
 
 
