@@ -25,11 +25,12 @@ wanted.
 from pathlib import Path
 
 from viba import viba_ast
-from viba.interpret import (Environment, VibaProgramErr, interpret, read_snapshot,
-                            viba_data, write_snapshot)
+from viba.interpret import (Environment, VibaProgramErr, get_snapshot, interpret,
+                            put_snapshot, viba_data)
 from viba.reflect import VObject, access as reflect_access, by_tag
 from viba.type import OK_TAG, Ok
 from compliance.storage import CALL_PREFIX, CALL_SEGMENT
+
 
 class Error(RuntimeError):
     """This layer's own refusal: what it was handed is no rule, or no place to record.
@@ -95,7 +96,7 @@ def call_path(name: str) -> str:
 
 def read_call(environ: Environment, name: str):
     """The stored call `name` as viba data, or None when there is none."""
-    return read_snapshot(environ, call_path(name))
+    return get_snapshot(environ, call_path(name))
 
 
 def the_call(name: str, *given):
@@ -127,7 +128,7 @@ def call_viba_data(call, result=None):
 
 def record_call(environ: Environment, name: str, call, result=None) -> None:
     """Write the call into this run's store."""
-    write_snapshot(environ, call_viba_data(call, result), call_path(name))
+    put_snapshot(environ, call_viba_data(call, result), call_path(name))
 
 
 def call_of(call):
@@ -214,7 +215,7 @@ def record_run(rule_file: str, environ: Environment) -> VObject:
     if answer.data.tag != OK_TAG:
         return answer
     for path in _run_calls(storage):
-        text = storage.read_text(path)
+        text = storage.get_text(path)
         if text is not None:
             record(path, text)
     return answer
@@ -223,7 +224,7 @@ def record_run(rule_file: str, environ: Environment) -> VObject:
 def _run_calls(storage):
     """The store paths of the calls this run wrote, `.viba` and all.
 
-    A store path is what `storage.read_text` takes: `<storage path>/call/...`,
+    A store path is what `storage.get_text` takes: `<storage path>/call/...`,
     relative to the store root."""
     store = Path(storage.store_root_dir)
     root = store / Path(*[part for part in str(storage.cur_storage_path).split("/") if part])

@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import Optional
 
 from viba.interpret import (Environment, EnvironmentCompute, EnvironmentStorage,
-                            exec, not_implemented, read_snapshot)
+                            exec, get_snapshot, not_implemented)
 
 from ticket_system import builtins, code, progress, repo, tickets
 
@@ -276,7 +276,7 @@ def _capabilities(the_api, name, tickets_path, interval, norm):
             call, so this says nothing about either — it is the same answer a host gives
             from `get_func`, said here because the data path is only on the environment.
             """
-            stored = read_snapshot(environ)
+            stored = get_snapshot(environ)
             if stored is not None:
                 return stored
             return not_implemented()

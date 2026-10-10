@@ -207,7 +207,7 @@ def _the_store_is_the_memory(store: Path):
 
 def _the_answer(store: Path, path: str):
     """store 里某个数据路径上落下的结果（一个 int）。"""
-    return service.leaf_value(service.read_snapshot(service.environ_at(path, store)))
+    return service.leaf_value(service.get_snapshot(service.environ_at(path, store)))
 
 
 # 一条谁都处理不了的链：只有一个调用，两个进程都不实现它。工单写下去也没人接，所以第二轮会

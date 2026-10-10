@@ -49,18 +49,18 @@ class CallStorage(EnvironmentStorage):
         parts = [part for part in str(file_path).split("/") if part]
         return CALL_SEGMENT in parts
 
-    def read_text(self, file_path: str):
+    def get_text(self, file_path: str):
         """This run's text, then the backup's; None when neither has it."""
         if self.call_root_dir is None or not self.is_call(file_path):
-            return super().read_text(file_path)
-        own = super().read_text(file_path)
+            return super().get_text(file_path)
+        own = super().get_text(file_path)
         if own is not None:
             return own
         return self._read_under(self._store_path(file_path, self.call_root_dir))
 
-    def write_text(self, file_path: str, content: str) -> None:
+    def put_text(self, file_path: str, content: str) -> None:
         """Always this run's store: the backup is not a run's to write."""
-        super().write_text(file_path, content)
+        super().put_text(file_path, content)
 
     def record_text(self, file_path: str, content: str) -> None:
         """Write into the backup itself: how a call comes to be backed up."""

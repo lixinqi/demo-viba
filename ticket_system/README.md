@@ -9,7 +9,7 @@
 | `progress.py` | 一张票据的进度：一次尝试一篇；怎么读那篇里的 `InterpretResult`（哪一支、哪个字段、哪次调用、`$stack` 是哪些调用）；以及「进度里有一条 `$ok` 才算做完」 |
 | `handler.py` | 一个处理进程：它问角色要能力表、把三个版本读出来对一遍、接「上一篇不是自己写的」那些票据，和那个隔一秒轮询一遍的循环 |
 | `repo.py` | norm 代码所在的那个 repo 的那棵树（代码那一层在里面；提交对不上就抽一份出来，不写那个 repo），以及把它的代码跑起来 |
-| `builtins.py` | `builtin.*` 那些算子：解释器不带库，宿主补 |
+| `builtins.py` | `viba/builtin.viba` 那些按值算的成员（算术、比较、转换、字符串算子，以及 `if` 用的两个开关）：解释器不带库，宿主补；名字与含义是 [`viba/builtin.viba`](../viba/viba/builtin.viba) 与 [`viba/viba-primitives.md`](../viba/viba-primitives.md) 的 |
 | `code.py` | 一段代码在哪、在哪个提交上（`git rev-parse HEAD`），读不出来的时候说什么 |
 | `scheduler.py` | 起每一个处理进程，并在每张票据都做完的那一刻停下它们 |
 
@@ -153,7 +153,7 @@ value =
 
 容器字面量写在**值**的位置上就是那个容器：一次运行把它算成一个值，能数、能按地址取、能原样写回去
 （`viba-interpreter.md`「容器字面量」）。所以这一层两头都走 `viba.serialize`：写票据与写进度是同一个
-`write_snapshot`，读回来是同一个 `read_snapshot`，容器成员不另开一条路。
+`put_snapshot`，读回来是同一个 `get_snapshot`，容器成员不另开一条路。
 
 `$VIBA_PATH` 是 `list[str]`：这次调用找它 import 的模块时用的那些目录，读的人按位置一个一个取
 （`tickets.a_list`，`tickets.the_paths` 在上面再加一道「每一个都得是字符串」）。这一项**不**存成
@@ -162,7 +162,7 @@ value =
 `os.pathsep` 连的事，不是票据存什么的事。
 
 `$handler_name2api_repo_commit_id` 是 `dict[str, str]`：一个角色一项，键就是写下来的那些键，值按键取
-（`tickets.a_dict`：`VObject.keys` 加 `VObject.at_key`），和 `$__getitem__` 对 dict 的两步是同一件
+（`tickets.a_dict`：`VObject.keys` 加 `VObject.at_key`），和 `$get_item` 对 dict 的两步是同一件
 事（`viba-interpreter.md`「按地址读元素」）。
 
 谁要的值不是容器，读的人当场报出来，不猜：`a_list` / `a_dict` 遇上不是容器的成员、`the_paths` 遇上

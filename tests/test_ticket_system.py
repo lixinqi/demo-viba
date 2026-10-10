@@ -42,8 +42,9 @@ os.environ["PYTHONPATH"] = os.pathsep.join(
 from interpreter_support import Checks
 
 from compliance import the_call
-from ticket_system import code, handler, progress, repo, tickets
-from viba.interpret import Environment, EnvironmentStorage, read_snapshot
+from ticket_system import builtins, code, handler, progress, repo, tickets
+from viba.interpret import (Environment, EnvironmentCompute, EnvironmentStorage,
+                              get_snapshot)
 from viba.interpret import is_interpret_result, not_implemented, viba_data
 from viba import viba_ast
 from viba.type import Frame, VibaProgramErr
@@ -182,7 +183,7 @@ def the_store(ticket) -> dict:
     out = {}
     for one in sorted(root.rglob("value.viba")):
         where = one.parent.relative_to(root).as_posix()
-        out[where] = read_snapshot(Environment(
+        out[where] = get_snapshot(Environment(
             EnvironmentStorage(where, None, str(root)), None)).leaf
     return out
 
@@ -393,8 +394,8 @@ def the_containers_are_values(tmp: Path):
     走 `tickets._piece`）。viba 哪一头退回去，这几条里的哪一条就红。
     """
     from viba import serialize, viba_ast
-    from viba.interpret import (Environment, EnvironmentStorage, read_snapshot,
-                                write_snapshot, viba_data)
+    from viba.interpret import (Environment, EnvironmentStorage, get_snapshot,
+                                put_snapshot, viba_data)
 
     # 1) `[]` 不是 viba 的写法；`ListLiteral[]` 才是
     try:
@@ -415,7 +416,7 @@ def the_containers_are_values(tmp: Path):
     place.mkdir(parents=True, exist_ok=True)
     (place / "v.viba").write_text("value =\n  ListLiteral[1, 2]\n")
     environ = Environment(EnvironmentStorage("list-read", None, str(tmp)), None)
-    back = read_snapshot(environ, "v")
+    back = get_snapshot(environ, "v")
     check(back is not None and len(back) == 2,
           f"a written ListLiteral reads back with its two elements: {back!r}")
     check(back[0].leaf == 1 and back[1].leaf == 2,
@@ -427,22 +428,22 @@ def the_containers_are_values(tmp: Path):
     check(not isinstance(written, VibaProgramErr)
           and written.ok_value == 'value =\n  ListLiteral[1]\n',
           f"a host-built ListLiteral has a spelling: {written!r}")
-    write_snapshot(environ, node, "host-list")
-    check(read_snapshot(environ, "host-list")[0].leaf == 1,
+    put_snapshot(environ, node, "host-list")
+    check(get_snapshot(environ, "host-list")[0].leaf == 1,
           "and what the host wrote is what reads back")
 
     # 4) DictLiteral 一样：键是写下来的那些键，值按键取
     dic = viba_ast.TypeApp("DictLiteral", [
         viba_ast.Tuple([viba_ast.Constant("a"), viba_ast.Constant("1")]),
         viba_ast.Tuple([viba_ast.Constant("b"), viba_ast.Constant("2")])])
-    write_snapshot(environ, dic, "dic")
-    back = read_snapshot(environ, "dic")
+    put_snapshot(environ, dic, "dic")
+    back = get_snapshot(environ, "dic")
     check(back.keys() == ["a", "b"] and back.at_key("b").leaf == "2",
           f"a DictLiteral is read by its keys: {back.keys()!r}")
 
     # 5) 一个 python list 连 viba data 都不是：宿主给值要先写成 AST（`tickets._piece`）
     try:
-        write_snapshot(environ, ["/a", "/b"], "python-list")
+        put_snapshot(environ, ["/a", "/b"], "python-list")
         check(False, "a python list is no viba data")
     except RuntimeError as problem:
         check("cannot take list as viba data" in str(problem),
@@ -578,6 +579,66 @@ def the_norm_code_runs(tmp: Path):
     at = repo_of(ticket, path)
     check(at.has("the_program") and at.has("service_a") and not at.has("nope"),
           "the repo says which modules it has")
+
+
+USES_BUILTINS = """__decl__ = str <- $env Env
+
+args = __get_args__ << __decl__
+
+parts = split << args.env << $x "a-b-c" << $separator "-"
+back = join << args.env << $parts parts << $separator "-"
+picked =
+    if
+  << $env (args.env.sub_env << args.env << "if")
+  << $cond (gt << args.env << $x 3 << $y 2)
+  << $t (add << $x 2 << $y 3)
+  << $f (mul << $x 2 << $y 3)
+
+__impl__ = concat << args.env << $x back << $y (int_to_str << args.env << $x picked)
+"""
+
+REFUSES = """__decl__ = str <- $env Env
+
+args = __get_args__ << __decl__
+
+__impl__ = char_at << args.env << $x "viba" << $at 9
+"""
+
+
+def the_builtin_members(tmp: Path):
+    """`viba/builtin.viba` 的那些成员由这一层补：norm 代码不借任何角色也算得下去。
+
+    这一条盯住三件事：字符串那几个算子（`split` / `join` / `char_at` / `concat` …）、`if`
+    挑一支用的两个开关（只有被挑中的那一支跑），以及一个成员收不下实参时由**这一步抛出来**
+    （`$underlying_viba_op_err`，`$msg` 开头是 `raised:`）。
+    """
+    norm = tmp / "builtin-norm"
+    norm.mkdir(parents=True)
+    (norm / "uses_builtins.viba").write_text(USES_BUILTINS)
+    (norm / "refuses.viba").write_text(REFUSES)
+    _git(norm, "init", "-q")
+    _git(norm, "add", "-A")
+    _git(norm, "-c", "user.email=a@b", "-c", "user.name=t", "commit", "-qm",
+         "the norm code")
+    table = builtins.the_table()
+    environ = Environment(
+        EnvironmentStorage("", None, str(tmp / "builtin-store")),
+        EnvironmentCompute(lambda module, name: table.get(f"{module}.{name}")), None)
+    at = repo.NormRepo(norm, code.git_commit(norm, "the norm repo", "t1"), tmp)
+
+    check("builtin.split" in table and "split" in table and "builtin.add" in table,
+          "a member is keyed under both names the same call can be asked by")
+    answer = repo.run_definition(at, "uses_builtins", "run", environ, [])
+    check(getattr(answer, "leaf", None) == "a-b-c5",
+          f"切、接、if、加法与转字符串都由这张表答出来：{answer!r}")
+
+    failed = repo.run_definition(at, "refuses", "run", environ, [])
+    members = (failed.by_tag("$underlying_viba_op_err")
+               if isinstance(getattr(failed, "data", None), viba_ast.Tagged)
+               and failed.data.tag == "$underlying_viba_op_err" else None)
+    check(members is not None
+          and str(members.by_tag("$msg").leaf).startswith("raised:"),
+          f"收不下的实参是这一步抛出来的：{failed!r}")
 
 
 def the_committed_tree_is_what_runs(tmp: Path):
@@ -771,6 +832,7 @@ def main() -> int:
         the_versions(scratch / "versions")
         the_roles_serve(scratch / "roles")
         the_norm_code_runs(scratch / "runs")
+        the_builtin_members(scratch / "builtins")
         the_committed_tree_is_what_runs(scratch / "dirty")
         the_handler_only_role(scratch / "plain")
         the_answer_is_kept(scratch / "kept")

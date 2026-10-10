@@ -118,7 +118,7 @@ def run(tmp: Path):
 def the_work_order(store: Path, module_path: str, func_name: str, call):
     """把一份还没人补的工单写进 store —— 调度写它的那两行（`save_the_failure`）。"""
     environ = service.environ_at(module_path, store)
-    environ.storage.write_text(snapshot_path(environ, call_path(func_name)),
+    environ.storage.put_text(snapshot_path(environ, call_path(func_name)),
                                service.call_text(call))
 
 
@@ -190,7 +190,7 @@ def _a_work_order_is_answered(tmp: Path):
     check(seen == [(4, 2)], f"the implementation is handed both arguments: {seen!r}")
     check(answered == [{"path": "root/c0", "func_name": "combine", "value": 6}],
           f"and the answer is the one reported: {answered!r}")
-    check(service.leaf_value(service.read_snapshot(
+    check(service.leaf_value(service.get_snapshot(
               service.environ_at("root/c0", store))) == 6,
           "and the answer is recorded where the call ran")
     result, it_is_answered = result_of(

@@ -42,7 +42,7 @@ from pathlib import Path
 from viba import viba_ast
 from compliance import call_path
 from distributed import service
-from viba.interpret import snapshot_path, write_snapshot
+from viba.interpret import snapshot_path, put_snapshot
 
 # How long one service process may take. A schedule that hangs is a failure to
 # report, not a schedule to wait for.
@@ -162,13 +162,13 @@ def save_the_failure(services: list, store, number: int, deferred: list) -> None
     """
     for one in deferred:
         environ = service.environ_at(one["path"], store)
-        environ.storage.write_text(
+        environ.storage.put_text(
             snapshot_path(environ, call_path(one["func_name"])), one["call"])
     record = viba_ast.ProductChain(
         [viba_ast.Tagged("$round", viba_ast.Constant(number))]
         + [viba_ast.Tagged(f"${name}", the_services_deferral(deferred, name))
            for name, _module in services])
-    write_snapshot(service.environ_at("", store), record, f"failure/round-{number}")
+    put_snapshot(service.environ_at("", store), record, f"failure/round-{number}")
 
 
 def the_services_deferral(deferred: list, name: str):

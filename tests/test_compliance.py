@@ -268,17 +268,17 @@ def _storage(tmp: Path):
           "a child storage keeps both roots, and still knows a call")
 
     # 不是一份调用的路径：照旧读写自己的 store，备份那边不沾
-    storage.write_text("notes.txt", "hello")
-    check(storage.read_text("notes.txt") == "hello", "an ordinary file reads back")
-    check(storage.read_text("call/absent.viba") is None,
+    storage.put_text("notes.txt", "hello")
+    check(storage.get_text("notes.txt") == "hello", "an ordinary file reads back")
+    check(storage.get_text("call/absent.viba") is None,
           "a call that neither side has answers None")
     check(not backup.exists() or not any(backup.rglob("*")),
           "and nothing was written into the backup")
 
     # 没有备份的 storage：那条路径就是普通路径
     plain = CallStorage("root", None, str(tmp / "plain-only"))
-    plain.write_text("call/x.viba", "value = 1\n")
-    check(plain.read_text("call/x.viba") == "value = 1\n",
+    plain.put_text("call/x.viba", "value = 1\n")
+    check(plain.get_text("call/x.viba") == "value = 1\n",
           "without a backup a call is just a file in the store")
 
 

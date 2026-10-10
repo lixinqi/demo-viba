@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from viba import viba_ast
-from viba.interpret import Environment, EnvironmentStorage, read_snapshot, write_snapshot
+from viba.interpret import Environment, EnvironmentStorage, get_snapshot, put_snapshot
 from viba.reflect import access as reflect_access
 from viba.type import Frame, VibaProgramErr
 
@@ -233,7 +233,7 @@ def write_stage(tickets_path, stage: "TicketStage") -> Path:
     the same handler gets a different name, and so does every other handler's.
     """
     name = stage_name(stage.handler_name)
-    write_snapshot(_stage_environ(tickets_path, stage.ticket_uid),
+    put_snapshot(_stage_environ(tickets_path, stage.ticket_uid),
                    the_product(stage.as_fields()), name)
     return stage_path(tickets_path, stage.ticket_uid, name)
 
@@ -252,7 +252,7 @@ def read_stages(tickets_path, uid: str) -> List["TicketStage"]:
     stages = []
     for path in sorted(directory.glob("*.viba")):
         try:
-            stored = read_snapshot(_stage_environ(tickets_path, uid), path.stem)
+            stored = get_snapshot(_stage_environ(tickets_path, uid), path.stem)
         except Exception:
             continue
         if stored is None:

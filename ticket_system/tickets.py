@@ -43,8 +43,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from viba import serialize, viba_ast
-from viba.interpret import (Environment, EnvironmentStorage, read_snapshot,
-                            viba_data)
+from viba.interpret import Environment, EnvironmentStorage, get_snapshot, viba_data
 from viba.reflect import access as reflect_access
 from viba.type import VibaProgramErr
 
@@ -129,7 +128,7 @@ def a_dict(node) -> dict:
     """A `DictLiteral` member as the python dict it stands for.
 
     The keys are the written ones (`VibaNode.keys`), and each value is read by its key
-    (`VibaNode.at_key`) — the same two steps `$__getitem__` takes for a dict
+    (`VibaNode.at_key`) — the same two steps `$get_item` takes for a dict
     (`viba-interpreter.md`「按地址读元素」), which is what a written `DictLiteral` is
     addressed by.
     """
@@ -310,10 +309,10 @@ def write_ticket(ticket: "Ticket", tickets_path) -> Path:
     """Write one ticket under the tickets path, and answer the file it landed in.
 
     The text is written whole and renamed onto the path, the way every snapshot is
-    (`EnvironmentStorage.write_text`), so a reader never sees half a ticket.
+    (`EnvironmentStorage.put_text`), so a reader never sees half a ticket.
     """
     path = ticket_path(tickets_path, ticket.uid)
-    _ticket_environ(tickets_path, ticket.uid).storage.write_text(
+    _ticket_environ(tickets_path, ticket.uid).storage.put_text(
         f"{ticket.uid}/{TICKET_FILE}", ticket_source(ticket))
     return path
 
@@ -325,7 +324,7 @@ def read_ticket(tickets_path, uid: str) -> Optional["Ticket"]:
     may write by hand. A ticket that cannot be read raises: a ticket nobody can
     read is not a ticket anybody can work on.
     """
-    stored = read_snapshot(_ticket_environ(tickets_path, uid), TICKET_NAME)
+    stored = get_snapshot(_ticket_environ(tickets_path, uid), TICKET_NAME)
     if stored is None:
         return None
     return ticket_of_node(stored)

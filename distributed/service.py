@@ -53,8 +53,8 @@ from compliance import (call_of, call_viba_data, read_call, record_call,
                         result_of)
 from compliance.storage import CALL_SEGMENT
 from viba.interpret import (SNAPSHOT_NAME, Environment, EnvironmentCompute,
-                            EnvironmentStorage, exec, interpret, not_implemented,
-                            read_snapshot, replayed, viba_data)
+                            EnvironmentStorage, exec, get_snapshot, interpret,
+                            not_implemented, replayed, viba_data)
 from viba.reflect import VObject, access as reflect_access
 from viba.type import (ERR_TAG, FAILURE_TAG, NOT_IMPLEMENTED_TAG, OK_TAG,
                        PROGRAM_ERR_TAG, Ok, VibaProgramErr)
@@ -188,7 +188,7 @@ class Service:
             call, tags and all. What this service adds is the one thing the run cannot
             know — where the call ran, which is on the environment (`self.deferred`).
             """
-            stored = read_snapshot(environ)
+            stored = get_snapshot(environ)
             if stored is not None:
                 return stored
             self.deferred = {"path": storage_path(environ)}
@@ -223,7 +223,7 @@ class Service:
         makes about its impure steps: each one runs once, and every later run
         replays the result it left.
         """
-        stored = read_snapshot(environ)
+        stored = get_snapshot(environ)
         value = replayed(environ, compute)
         self.notes.append({"path": storage_path(environ), "computed": stored is None,
                            "value": leaf_value(value)})
