@@ -127,10 +127,12 @@ def _dict_piece(entries) -> viba_ast.AST:
 def a_dict(node) -> dict:
     """A `DictLiteral` member as the python dict it stands for.
 
-    The keys are the written ones (`VibaNode.keys`), and each value is read by its key
-    (`VibaNode.at_key`) — the same two steps `$get_item` takes for a dict
+    The keys are the written ones (`VObject.keys`), and each value is read by its key
+    (`VObject.at_key`) — the same two steps the `$get_item` member takes for a dict
     (`viba-interpreter.md`「按地址读元素」), which is what a written `DictLiteral` is
-    addressed by.
+    addressed by. That member is a call like any other, and its environment is one more
+    argument (`$get_item << items << $env nil << 1`), while these two accessors are the
+    host side of the same reading.
     """
     kind = reflect_access.container_kind(reflect_access.unfold(node.descriptor))
     if kind != "dict":

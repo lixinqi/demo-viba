@@ -163,7 +163,8 @@ value =
 
 `$handler_name2api_repo_commit_id` 是 `dict[str, str]`：一个角色一项，键就是写下来的那些键，值按键取
 （`tickets.a_dict`：`VObject.keys` 加 `VObject.at_key`），和 `$get_item` 对 dict 的两步是同一件
-事（`viba-interpreter.md`「按地址读元素」）。
+事（`viba-interpreter.md`「按地址读元素」；那个成员是调用，环境是它的一个参数，写起来是
+`$get_item << items << $env nil << 1`，这两个访问器是宿主那一侧的同一件事）。
 
 谁要的值不是容器，读的人当场报出来，不猜：`a_list` / `a_dict` 遇上不是容器的成员、`the_paths` 遇上
 不是字符串的元素，都停下并把那一个值写进消息里。这是
