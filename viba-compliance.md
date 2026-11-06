@@ -73,13 +73,13 @@ __impl__ =
 读法：
 
 - **一步一个定义**：案子的数据路径、呈证、测量、判定各是一行，没有把调用套在调用里面。定义是按需求值的
-  绑定，一次运行里只求值一次（[`viba-interpreter.md`](viba/viba-interpreter.md) 的「求值策略：按需求值
+  绑定，一次运行里只求值一次（[`viba-interpreter.md`](viba/viba/exec/viba-interpreter.md) 的「求值策略：按需求值
   （call-by-need）」一节），所以 `the_case` 就是那份实例本身。
 - **`case_env` 是这个案子的数据路径**：`case_at_1230` 这个名字同时是模块名、子环境名，也落在
   数据路径上（`root/case_at_1230`）。读呈证用它，这个案子的证据也存在它下面。
 - **调用用临时环境，证据才要数据路径**。函数调用给 `(args.env.tmp_env << args.env)`：一次调用没有
   自己的数据路径，也不该占一个（`tmp_env` 每次都是新的，见
-  [`viba-interpreter.md`](viba/viba-interpreter.md)）。要给
+  [`viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)）。要给
   证据落数据路径的是**测量**：它多收一个槽位 `$evidence Environment`，明说"这次测量属于哪个案子"。
   两者分开，规则里才没有人把任意一次调用钉到案子的数据路径上。
 - **`__impl__` 是判定**。它是 `bool`，跑完就是结果：真合规、假不合规。这条规则跑出来是
@@ -88,12 +88,12 @@ __impl__ =
   `$threshold` 给——`threshold = 5` 是这条规则自己的选择，换个案子换个门槛，写的还是同一个
   函数。规则想有几个条件、想怎么组合（`<<` 给参数、定义复用、模块拆开），都是写程序的事。
 - **函数体里的 `{...}` 是说明**：实现来自宿主的 `get_func(module_path, func_name)`（见
-  [`viba-interpreter.md`](viba/viba-interpreter.md)），interpret 不带任何库函数——提示写给的正是要
+  [`viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)），interpret 不带任何库函数——提示写给的正是要
   照着它把实现补出来的 agent。
 - **每个要执行的函数都得拿到环境**：`__decl__` 里可以写 `$env Env` 这个参数，也可以不写 —— 写了就给
   这个参数，不写就随这次调用的结果往后走，直到落进某一个函数的 `$env Env` 那一处。规则也不例外。
 - **环境不能当结果**：只有内建函数能把它声明成返回值，规则文件也一样写不了——要读环境就写
-  `args.env`，别把环境当结果交出去（见 [`viba-interpreter.md`](viba/viba-interpreter.md)）。
+  `args.env`，别把环境当结果交出去（见 [`viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)）。
 
 ## 2. 呈证给出实例
 
@@ -133,7 +133,7 @@ the_case = case_at_1230 << case_env
 ```
 
 呈证给出的是实例，规则要按数据路径读它：`$victim`、`$suspect`、`$at` 是数据路径，`$x`/`$y` 再往下一层。
-读的工具在宿主侧，是 [`viba/reflect.py`](viba/viba/reflect.py)（[`viba-reflect.md`](viba/viba-reflect.md)）：
+读的工具在宿主侧，是 [`viba/reflect.py`](viba/viba/reflect.py)（[`viba-reflect.md`](viba/viba/core/viba-reflect.md)）：
 上面那段 [`host.py`](compliance/demo/host.py) 里的 `_point` 就是按数据路径读的
 （`given.by_tag("victim").by_tag("x").leaf`）。呈证不必长得像规则：它就是事实。
 
@@ -163,7 +163,7 @@ verdict = is_compliant("rule_distance.viba", environ)   # -> 声明的 Interpret
   给出了没有叶子的东西，是 `$underlying_viba_op_err UnderlyingOpErr`。两者的 `$msg` 一句话说清
   是什么事；`$call` 是那次调用本身，写成能再跑的形式。
 - 一次运行的环境（`Environment`、storage、`get_func`）怎么给，见
-  [`viba-interpreter.md`](viba/viba-interpreter.md)：
+  [`viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)：
   `is_compliant` 就是 `interpret` 加"读出那个 bool"—— 它的答案就是 `interpret` 答的那份数据
   （`$ok <bool>` 或 `$err <why it stopped>`），只有"这文件不是规则"与"这存储记不了调用"两件事是
   这一层自己的拒绝（`compliance.Error`）。
@@ -208,7 +208,7 @@ value =
 - 它是**序列化的 viba 数据**，不是 pickle：人读得懂，也能解析回实例。
 - `$call` 是**这次调用本身**，按它写下来的样子：`__dyn_call__ << "<名字>" << <它拿到的>`。这是 viba
   给的那种写法（`UnderlyingOpErr.call` 就是它），**给一个环境就是执行它**——照它就能把这次调用再做
-  一遍；环境不在里面，谁跑谁自己造（[`viba-interpreter.md`](viba/viba-interpreter.md)）。
+  一遍；环境不在里面，谁跑谁自己造（[`viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)）。
 - `$result` 是它给出的值，还没人给过就是 `nil`。文件里的 `$call` 压过现场传进来的 `given`：
   **被固定的那次调用才算数**。
 - 路径是 `<案子路径>/call/<name>.viba`；`name` 由调用方取（同一个调用用同一个名字），
@@ -296,7 +296,7 @@ record_text(file_path, content)          # 写进备份本身（record_run 用�
    之后每次 `is_compliant` 都读备份。规则里的函数调用给临时环境，只有读呈证与记证据才用
    案子的数据路径。
 6. **要检查实例**：用 [`viba/reflect.py`](viba/viba/reflect.py) 的数据路径与叶子读
-   （[`viba-reflect.md`](viba/viba-reflect.md)），或 `read_call` 直接读存档。
+   （[`viba-reflect.md`](viba/viba/core/viba-reflect.md)），或 `read_call` 直接读存档。
 
 [`tests/test_compliance.py`](tests/test_compliance.py) 是一份可以照抄的完整例子；
 [`compliance/demo/`](compliance/demo/) 是上面这套的最小可运行版本。

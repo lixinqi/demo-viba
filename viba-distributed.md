@@ -15,7 +15,7 @@ B，各是一个 Python 进程）共用一份 environment storage（下文只说
 [`demo/distributed/reading/`](demo/distributed/reading/) 是五套服务、一套一个 api，名字和类型都不
 一样，调度那条命令照旧。
 
-跑它的还是 `interpret`（[`viba-interpreter.md`](viba/viba-interpreter.md)）：类型、`__decl__`、
+跑它的还是 `interpret`（[`viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)）：类型、`__decl__`、
 `__impl__` 都没有第二套。多出来的只有一条：**谁的能力表里有这一步要的那个名字，这一步就在谁那里
 算** —— 能力表就是 `get_func` 报给解释器的那张表：这个进程实现得了哪些名字。走到哪一套服务都没
 有那个名字的一步，而 store 里也还没有这条数据路径上的结果（`<数据路径>/value.viba`，第 4 节），
@@ -87,7 +87,7 @@ def the_api(service):
     return {"a_step": a_step, "a_scale": a_scale}
 ```
 
-`recorded` 就是 `replayed`（[`viba-interpreter.md`](viba/viba-interpreter.md)「幂等与快照：结果要能
+`recorded` 就是 `replayed`（[`viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)「幂等与快照：结果要能
 回放」）：第一次执行时算出结果、写进 store，之后每一次都直接回放同一份。随机抽出来的那个数只用
 一次，落到盘上的是算出来的结果 —— 后面每一次运行都回放这份结果，不再抽第二次。这是整份程序可复现
 的全部依据。
@@ -97,7 +97,7 @@ def the_api(service):
 A 的服务进程执行到 `c1`（`b_step`）这一步时，能力表里没有这个名字。`interpret` 遇到这样一步，
 给出的不是失败，而是一支**递延**（deferral）：`$err InterpretError` 里的
 `$not_implemented_err UnderlyingOpErr`——意思是"这一步不归这个进程管"，等有能力表里那个名字的服务
-进程接着做（[`viba-interpreter.md`](viba/viba-interpreter.md)「一次执行会得到什么」）：
+进程接着做（[`viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)「一次执行会得到什么」）：
 
 ```viba
 InterpretResult =
@@ -119,7 +119,7 @@ UnderlyingOpErr =
   * $call Any                                   # 这次调用本身，写成能再跑的形式（环境还没给）
 ```
 
-`interpret` 与 `exec` 回答的就是这份数据（[`viba/interpret_result.viba`](viba/interpret_result.viba)），
+`interpret` 与 `exec` 回答的就是这份数据（[`viba/viba/interpret_result.viba`](viba/viba/interpret_result.viba)），
 所以读它是按 tag 往下读：`$err` 那一支，再按哪一支停法读它的字段。宿主自己要说「这一步没有实现」时
 **交回这份数据**（`viba.interpret.not_implemented()`），不抛异常：它已经写下来的东西留着，缺的由 run
 用它知道的这次调用补上。
@@ -191,7 +191,7 @@ value =
 只靠这两部分就能把这一步算完 —— 数据路径说有哪一步、要哪个名字，`$call` 说这次调用本身是什么，
 能力表里有 `<api>` 的那个服务进程把它跑一遍，结果落到同一条数据路径下 `replayed` 读的那份文件上
 （`<数据路径>/value.viba`，文件名是 viba 自己的约定，见
-[`viba-interpreter.md`](viba/viba-interpreter.md)「幂等与快照：结果要能回放」），不必知道这次运行的
+[`viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)「幂等与快照：结果要能回放」），不必知道这次运行的
 其他任何情况。补账那一侧跑完还会把同一个结果填回工单的 `$result`：那是它自己的记录，下一轮凭它
 知道这份工单已经补过，不会再算一遍（第 4 节）。执行状态也没有跟着搬过来：continuation 没有被
 捕获，它就在盘上（`roadmap.md` 第 3 节）。谁的能力表里有 `<api>`，谁就接下这一步，把它完成。
@@ -230,7 +230,7 @@ store 里因此留着一次运行已经算过的每一步：`root/c0/value.viba`
 也不用再问 B。
 
 一份 store 同时被各套服务的进程读写，所以写出的文件是一次写完整的（先写在旁边，再改名：
-[`viba-interpreter.md`](viba/viba-interpreter.md)「幂等与快照：结果要能回放」）。读到的那一份要么还
+[`viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)「幂等与快照：结果要能回放」）。读到的那一份要么还
 没有，要么是完整的一份，不会是半份。
 
 回放的依据只有 store：同一步的结果落在两处（`<数据路径>/value.viba` 与工单里的 `$result`），
@@ -288,9 +288,9 @@ store 上再调度一次一轮就 OK、一步都不算。
 
 实现拿到的是这次调用的一个个实参，环境排在第一位：写 `(environ, x)` 就收一个实参，写
 `(environ, x, y)` 就收两个，按实参写下来的次序交，环境给在 `$env (...)` 写的位置
-（[`viba-interpreter.md`](viba/viba-interpreter.md)）。程序那一侧和补账那一侧因此是同一条规矩 ——
+（[`viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)）。程序那一侧和补账那一侧因此是同一条规矩 ——
 补账就是把工单里那份 `$call` 跑一遍（[`distributed/service.py`](distributed/service.py) 的
 `answer_the_call`：`exec` 收的就是那份可序列化数据），谁跑都按同一次调用交实参，`$env (...)` 要
 写在一条链的最前面。工单里因此不用另存一份"实参是怎么摆的"：`$call` 就是那次调用本身，实参带
-着写下来的 tag 全在里面（[`viba-pattern.md`](viba/viba-pattern.md)）。实参里有宿主值的调用
+着写下来的 tag 全在里面（[`viba-pattern.md`](viba/viba/core/viba-pattern.md)）。实参里有宿主值的调用
 （环境是一种）留不进 `$call`，viba 自己就不把它写进去；所以工单里留下的是可序列化的那次调用。

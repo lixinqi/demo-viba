@@ -111,9 +111,9 @@ its file is.
 
 A run that reaches a step its host has no implementation for does not fail: it stops
 with the **deferral** — `$err InterpretError`, the third stop of an `interpret` result,
-`$not_implemented_err UnderlyingOpErr` ([`viba-interpreter.md`](../viba/viba-interpreter.md)
+`$not_implemented_err UnderlyingOpErr` ([`viba-interpreter.md`](../viba/viba/exec/viba-interpreter.md)
 writes all of them out). `interpret` and `exec` answer that declaration **as viba data**
-([`viba/interpret_result.viba`](../viba/viba/interpret_result.viba)), so a stop is read by
+([`viba/viba/interpret_result.viba`](../viba/viba/interpret_result.viba)), so a stop is read by
 its tags: `$err`, then the tag that says which kind of stop, then that kind's members. A
 host that has no implementation for a step answers `not_implemented()`
 (`viba.interpret`) instead of raising, and the run fills in the step it was about.
@@ -181,14 +181,14 @@ table can take it, run the call, and write the answer back without knowing anyth
 about the run — the call comes from the work order, and where the answer goes is the work
 order's own storage path. What a run reads is the result file there,
 `<storage path>/value.viba` (`replayed`'s file; the name is viba's own snapshot convention,
-see [`viba-interpreter.md`](../viba/viba-interpreter.md)). The answer phase writes the same
+see [`viba-interpreter.md`](../viba/viba/exec/viba-interpreter.md)). The answer phase writes the same
 answer into the work order's `$result` as well — that is its own record: the next answer
 phase replays it instead of running the call again. No execution state travels; the files
 in the store are the whole of it.
 
 Both services read and write one store at the same time, so a snapshot is written whole
 or not at all (it is written beside the path and renamed onto it — see
-[`viba-interpreter.md`](../viba/viba-interpreter.md), the chapter on snapshots and replay).
+[`viba-interpreter.md`](../viba/viba/exec/viba-interpreter.md), the chapter on snapshots and replay).
 What a reader gets is either nothing yet or one complete file, never half of one.
 
 Replay has no source but the store: one step's result lands in two places

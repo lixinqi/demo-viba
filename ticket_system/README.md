@@ -9,7 +9,7 @@
 | `progress.py` | 一张票据的进度：一次尝试一篇；怎么读那篇里的 `InterpretResult`（哪一支、哪个字段、哪次调用、`$stack` 是哪些调用）；以及「进度里有一条 `$ok` 才算做完」 |
 | `handler.py` | 一个处理进程：它问角色要能力表、把三个版本读出来对一遍、接「上一篇不是自己写的」那些票据，和那个隔一秒轮询一遍的循环 |
 | `repo.py` | norm 代码所在的那个 repo 的那棵树（代码那一层在里面；提交对不上就抽一份出来，不写那个 repo），以及把它的代码跑起来 |
-| `builtins.py` | `viba/builtin.viba` 那些按值算的成员（算术、比较、转换、字符串算子，以及 `if` 用的两个开关）：解释器不带库，宿主补；名字与含义是 [`viba/builtin.viba`](../viba/viba/builtin.viba) 与 [`viba/viba-primitives.md`](../viba/viba-primitives.md) 的 |
+| `builtins.py` | `viba/builtin.viba` 那些按值算的成员（算术、比较、转换、字符串算子，以及 `if` 用的两个开关）：解释器不带库，宿主补；名字与含义是 [`viba/builtin.viba`](../viba/viba/builtin.viba) 与 [`viba/viba/exec/viba-primitives.md`](../viba/viba/exec/viba-primitives.md) 的 |
 | `code.py` | 一段代码在哪、在哪个提交上（`git rev-parse HEAD`），读不出来的时候说什么 |
 | `scheduler.py` | 起每一个处理进程，并在每张票据都做完的那一刻停下它们 |
 

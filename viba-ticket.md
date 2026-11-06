@@ -117,7 +117,7 @@ norm repo 里 —— 它是宿主的事，服务自己的那个处理进程
 
 上面那两个容器成员（`$VIBA_PATH` 与 `$handler_name2api_repo_commit_id`）写的是**容器本身**，不是它
 们的某种拼法：容器字面量写在值的位置上就是那个 list / dict，能数、能按地址取、能原样写回去
-（[`viba/viba-interpreter.md`](viba/viba-interpreter.md) 的「容器字面量」与「按地址读元素」两节）。
+（[`viba/viba/exec/viba-interpreter.md`](viba/viba/exec/viba-interpreter.md) 的「容器字面量」与「按地址读元素」两节）。
 所以 `$VIBA_PATH` 在盘上就是 `ListLiteral[…]`，读它的人按位置一个一个取
 （[`ticket_system/tickets.py`](ticket_system/tickets.py) 的 `the_paths`）；
 `$handler_name2api_repo_commit_id` 在盘上就是 `DictLiteral[…]`，读它的人拿键、按键取值（`a_dict`）。
@@ -170,7 +170,7 @@ def the_api(context):
 [`service_b.py`](demo/ticket_examples/service_b.py) 的提交 —— 换个进程、换个文件，都得对上。
 
 跑一张票据就是跑它那个 `$call`：`$call` 是 `Any <- Env`，缺的只是环境，所以这一步就是 `exec`
-（[`viba/viba-interpreter.md`](viba/viba-interpreter.md)「把一次调用写成可执行的」）。给它的那个环境
+（[`viba/viba/exec/viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)「把一次调用写成可执行的」）。给它的那个环境
 三样东西来自票据和角色：
 
 ```python
@@ -319,7 +319,7 @@ TicketProgress = AppendOnlyList[TicketStage]
 ```
 
 `$interpret_result` 是那次尝试得到的答案，就是 `interpret` 答的那种东西
-（[`viba/viba-interpreter.md`](viba/viba-interpreter.md)）：`$ok <值>` 是一次**做完了**的尝试；别的
+（[`viba/viba/exec/viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)）：`$ok <值>` 是一次**做完了**的尝试；别的
 都是**停下的记录**，里面是 `InterpretError` 的那一支：
 
 - `$not_implemented_err`：这一次尝试停在一个**别人做**的步子上。第 2 节那张表里的四篇记录，前三篇
@@ -333,7 +333,7 @@ TicketProgress = AppendOnlyList[TicketStage]
 时候 `by_tag` 问另一支会报「设计里没有这个地址」，读的人把这当成「没有这一支」—— 不是错误，因为
 「没答」本来就是结果能说的两件事之一。
 
-这个过程答的就是 viba 那份数据（`viba/interpret_result.viba`），这一层原样存下来
+这个过程答的就是 viba 那份数据（`viba/viba/interpret_result.viba`），这一层原样存下来
 （`tickets.a_result`）：一支一支、字段都在。停下的那一支里，`UnderlyingOpErr` 两支写
 `$msg`、`$module_path`、`$full_qualified_func_name` 与 `$call`（那次调用本身，还是能再跑的形式 ——
 norm 定义内部坏掉的那种停法 `$module_path` 与 `$full_qualified_func_name` 会空着，因为那是解释器在
@@ -415,7 +415,7 @@ value =
 
 一张票据的 `$storage_path` 是那次调用跑在的 viba 环境的存储根。viba 里不纯的宿主函数经
 `replayed` 作答：先看这次调用的存储路径下有没有答案，有就回放，没有才算、才写下去
-（[`viba/viba-interpreter.md`](viba/viba-interpreter.md)）。票据系统给这条规矩的是一个**落处**，
+（[`viba/viba/exec/viba-interpreter.md`](viba/viba/exec/viba-interpreter.md)）。票据系统给这条规矩的是一个**落处**，
 所以同一张票据被处理两次 —— 两个进程，或者同一个进程两次 —— 那次不纯的调用只算一次：
 
 ```
