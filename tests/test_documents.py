@@ -9,9 +9,13 @@ README 里的 ```viba 块是写给别人照抄的，一块编不过就是在教�
 写的成员就是 `ticket_system/` 里写票据、写进度的那两份 python 用的那一批名字 —— 设计文件与代码
 说的是同一件事，两处对不上就是有一处过时了。
 
+最后查这些文档里的相对链接：它们指到 `viba/` 子模块里的章节与文件，也互相指。上游挪一份文档，
+这里就红，而不是等谁点到才发现。
+
     python3 tests/test_documents.py
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -115,10 +119,34 @@ def the_design():
           f"{members_of(tree['TicketStage'].body)!r} != {progress.STAGE_TAGS!r}")
 
 
+def links_of(text: str) -> list:
+    """Every target a Markdown link in `text` points at, in written order."""
+    return re.findall(r"\]\(([^)\s]+)\)", text)
+
+
+def the_links():
+    """文档里的相对链接都能打开：上游挪了哪一份文档，这里就红。
+
+    链接目标按它所在那份文档的目录解析；`http(s)://` 与 `#` 开头的不查（那是别的仓库与本文之内
+    的锚点）。目标可以是一个目录（`viba/` 就是）。
+    """
+    checked = 0
+    for name in ("README.md",) + DOCUMENTS:
+        document = ROOT / name
+        for target in links_of(document.read_text(encoding="utf-8")):
+            if target.startswith(("http://", "https://", "#")):
+                continue
+            checked += 1
+            check((document.parent / target.split("#")[0]).exists(),
+                  f"{name} links to {target}, and it is not there")
+    check(checked > 20, f"the documents still link somewhere ({checked} links)")
+
+
 def main() -> int:
     total = sum(one_document(name) for name in DOCUMENTS)
     check(total > 0, "the documents still hold viba blocks to check")
     the_design()
+    the_links()
     return checks.report()
 
 

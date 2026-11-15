@@ -133,7 +133,7 @@ the_case = case_at_1230 << case_env
 ```
 
 呈证给出的是实例，规则要按数据路径读它：`$victim`、`$suspect`、`$at` 是数据路径，`$x`/`$y` 再往下一层。
-读的工具在宿主侧，是 [`viba/reflect.py`](viba/viba/reflect.py)（[`viba-reflect.md`](viba/viba/core/viba-reflect.md)）：
+读的工具在宿主侧，是 [`viba/reflect.py`](viba/viba/reflect.py)（[`viba-reflect.md`](viba/viba/core/data/viba-reflect.md)）：
 上面那段 [`host.py`](compliance/demo/host.py) 里的 `_point` 就是按数据路径读的
 （`given.by_tag("victim").by_tag("x").leaf`）。呈证不必长得像规则：它就是事实。
 
@@ -296,7 +296,7 @@ record_text(file_path, content)          # 写进备份本身（record_run 用�
    之后每次 `is_compliant` 都读备份。规则里的函数调用给临时环境，只有读呈证与记证据才用
    案子的数据路径。
 6. **要检查实例**：用 [`viba/reflect.py`](viba/viba/reflect.py) 的数据路径与叶子读
-   （[`viba-reflect.md`](viba/viba/core/viba-reflect.md)），或 `read_call` 直接读存档。
+   （[`viba-reflect.md`](viba/viba/core/data/viba-reflect.md)），或 `read_call` 直接读存档。
 
 [`tests/test_compliance.py`](tests/test_compliance.py) 是一份可以照抄的完整例子；
 [`compliance/demo/`](compliance/demo/) 是上面这套的最小可运行版本。
