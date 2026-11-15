@@ -113,6 +113,33 @@ def run(tmp: Path):
     _a_single_argument_stays_one(tmp)
     _a_work_order_is_answered(tmp)
     _a_two_argument_call_kept_whole(tmp)
+    _a_module_path_with_dots_is_a_step(tmp)
+    _an_answer_with_no_leaf_is_named(tmp)
+
+
+def _a_module_path_with_dots_is_a_step(tmp: Path):
+    """`instances.fake` 指的是程序旁边那份 `instances/fake.viba`：名字里有几个点就几层目录。"""
+    here = tmp / "nested"
+    (here / "instances").mkdir(parents=True)
+    (here / "instances" / "fake.viba").write_text("ask = int <- $env Env <- { x }\n",
+                                                  encoding="utf-8")
+    (here / "program.viba").write_text("__decl__ = int <- $env Env\n\n__impl__ = 1\n",
+                                       encoding="utf-8")
+    the_service = Service("a", lambda owner: {}, here, str(here / "program.viba"))
+    check(the_service.is_a_step_of_the_program("instances.fake"),
+          "a module path with dots is the file it names")
+    check(not the_service.is_a_step_of_the_program("instances.gone"),
+          "and a file that is not there is no step")
+
+
+def _an_answer_with_no_leaf_is_named(tmp: Path):
+    """答案是一份积时，报告给的是它的 viba 源码，不是一个要炸的叶子。"""
+    answer = viba_data(viba_ast.ProductChain([
+        viba_ast.Tagged("$text", viba_ast.Constant("hi")),
+        viba_ast.Tagged("$stop", viba_ast.Constant("end_turn"))]))
+    named = service.leaf_value(answer)
+    check(isinstance(named, str) and "$text" in named and "hi" in named,
+          f"a product is named by its source: {named!r}")
 
 
 def the_work_order(store: Path, module_path: str, func_name: str, call):

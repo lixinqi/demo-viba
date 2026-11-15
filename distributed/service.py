@@ -48,14 +48,14 @@ import argparse
 import json
 from pathlib import Path
 
-from viba import serialize
+from viba import serialize, viba_ast
 from compliance import (call_of, call_viba_data, read_call, record_call,
                         result_of)
 from compliance.storage import CALL_SEGMENT
 from viba.interpret import (SNAPSHOT_NAME, Environment, EnvironmentCompute,
                             EnvironmentStorage, exec, get_snapshot, interpret,
                             not_implemented, replayed, viba_data)
-from viba.reflect import VObject, access as reflect_access
+from viba.reflect import VObject, VibaReflectError, access as reflect_access
 from viba.type import (ERR_TAG, FAILURE_TAG, NOT_IMPLEMENTED_TAG, OK_TAG,
                        PROGRAM_ERR_TAG, Ok, VibaProgramErr)
 
@@ -83,11 +83,18 @@ def storage_path(environ: Environment) -> str:
 
 
 def leaf_value(value):
-    """The leaf a viba data or a host value carries — what a report names."""
+    """The leaf a viba data or a host value carries — what a report names.
+
+    A step's answer need not be a leaf: a product (an agent's answer, say) has
+    none. A report is one JSON line, so such a piece is named by the viba source
+    it was built from (`viba_ast.unparse_type`) instead of by a leaf.
+    """
     if not isinstance(value, VObject):
         return value
     leaf = reflect_access.leaf(value)
-    return leaf.msg if isinstance(leaf, VibaProgramErr) else leaf.ok_value
+    if isinstance(leaf, Ok):
+        return leaf.ok_value
+    return viba_ast.unparse_type(value.data)
 
 
 def stop_pieces(result) -> dict:
@@ -102,10 +109,29 @@ def stop_pieces(result) -> dict:
     tag = stop.data.tag
     members = stop.by_tag(tag)
     return {"tag": tag, "msg": leaf_value(members.by_tag("$msg")) or "",
-            "module_path": leaf_value(members.by_tag("$module_path")) or "",
-            "full_qualified_func_name":
-                leaf_value(members.by_tag("$full_qualified_func_name")) or "",
-            "call": members.by_tag("$call")}
+            "module_path": the_member(members, "$module_path"),
+            "full_qualified_func_name": the_member(members,
+                                                   "$full_qualified_func_name"),
+            "call": the_node(members, "$call")}
+
+
+def the_member(members, tag: str) -> str:
+    """One member of a stop, as text; '' when that kind of stop has no such member.
+
+    Only the two `UnderlyingOpErr` kinds name the step and the call. A program error
+    (`$viba_program_err`) carries `$msg` and `$stack` and nothing else, and reporting
+    it must not turn into a crash in the report itself.
+    """
+    node = the_node(members, tag)
+    return leaf_value(node) if node is not None else ""
+
+
+def the_node(members, tag: str):
+    """One member of a stop, as viba data; None when this kind of stop has none."""
+    try:
+        return members.by_tag(tag)
+    except VibaReflectError:
+        return None
 
 
 def call_text(call) -> str:
@@ -201,11 +227,13 @@ class Service:
 
         The api files sit beside the program (`service_a.viba` next to
         `interleaved.viba`), which is where the run looks them up too
-        (`Service.viba_path`).
+        (`Service.viba_path`). A module path with dots is a directory and a file
+        (`instances.fake` is `instances/fake.viba`), the way `import` looks it up.
         """
         if not module:
             return False
-        return (Path(self.viba_path) / f"{module}.viba").is_file()
+        relative = Path(*module.split(".")).with_suffix(".viba")
+        return (Path(self.viba_path) / relative).is_file()
 
     def environ_at(self, path, compute=True) -> Environment:
         """The environment for a call at this path, in this process: its storage is that
