@@ -68,7 +68,7 @@ def viba_blocks(text: str) -> list:
                 current = []
             else:
                 inside = True
-                wanted = line[3:].strip() == "viba"
+                wanted = line[3:].strip().split()[:1] == ["viba"]
             continue
         if inside:
             current.append(line)

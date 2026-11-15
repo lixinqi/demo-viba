@@ -4,7 +4,7 @@
 
 一次调用涉及三方：
 
-- **viba 程序**调用 `acp.open_session` 与 `acp.send_prompt`；agent 的名字、启动命令与通信协议不在程序内。
+- **viba 程序**调用 `public.open_session` 与 `public.send_prompt`；agent 的名字、启动命令与通信协议不在程序内。
 - **服务**实现这两个操作（[`agent_service.py`](agent_service.py)），并在进程生命周期内维持一个 agent
   进程与一条 ACP 会话。
 - **agent** 是外部进程，由服务的 `AGENT` 启动，通过 ACP 通信。
@@ -21,7 +21,9 @@ ACP 是客户端与 agent 之间的会话协议。服务启动 agent 进程，`i
 
 ## 2. 接口
 
-接口声明在 [`viba_acp.viba.md`](../viba_acp.viba.md)，是一个模块 `acp.viba`，每个定义在文档里各占一节。
+接口声明在 [`viba_acp.viba.md`](../viba_acp.viba.md)，是三个模块：`viba_acp.public`（对外名字的转导出）、
+`viba_acp.types`（类型）、`viba_acp.apis`（操作）。外部只 import `viba_acp.public`，不直接依赖另两个。
+
 三条约定：
 
 1. **每个操作先收环境。** `$env Env` 是第一个参数，与 viba 的其他调用一致；`open_session` 的其余参数由
@@ -40,7 +42,9 @@ python3 demo/viba_acp/run.py          # 脚本化 agent
 python3 demo/viba_acp/run.py --fresh  # 从空 store 开始
 ```
 
-`run.py` 将两份 `.viba.md` 文档的 `viba` 代码块按顺序拼成 `<store>/source/viba_acp/` 下的两个模块，然后
+`run.py` 把两份 `.viba.md` 文档按 `viba <name>` 代码块拼成模块：接口文档的 `viba public`/`viba types`/
+`viba apis` 落到 `<store>/source/viba_acp/viba_acp/` 下的三个文件，块外的说明成为该文件的注释；示例程序
+按标题落到 `<store>/source/viba_acp/explain_then_shorten.viba`。然后
 启动 [`distributed/scheduler.py`](../distributed/scheduler.py) 与一个服务进程（`agent_service`）。它产出
 两项结果：
 
@@ -53,20 +57,20 @@ python3 demo/viba_acp/run.py --fresh  # 从空 store 开始
 ### 3.2 viba 程序的调用方式
 
 ```viba
-import acp
+import viba_acp.public as public
 
-__decl__ = acp.PromptResponse <- $env Env
+__decl__ = public.PromptResponse <- $env Env
 
 args = __get_args__ << __decl__
 
-session = acp.open_session << $env ($sub_env << args.env << "c0")
+session = public.open_session << $env ($sub_env << args.env << "c0")
 
 question =
     $TextContent nil
   * $text "Explain in one sentence what a type class is."
 
 __impl__ =
-     acp.send_prompt << $env ($sub_env << args.env << "c1")
+     public.send_prompt << $env ($sub_env << args.env << "c1")
   << $session session
   << $prompt (ListLiteral[question])
   << $on_update nil
@@ -75,7 +79,7 @@ __impl__ =
 两次调用都在各自的子环境中执行（`c0`、`c1`）。该子环境的数据路径即本次调用的**存储路径**：答案记录在
 该路径下，同一 store 上的后续运行直接从该路径回放，不再向 agent 发送请求（第 4 节）。
 
-程序只引入 `acp`。这些操作由服务提供；程序不引入服务，也不知道启动命令。
+程序只引入 `viba_acp.public`。这些操作由服务提供；程序不引入服务，也不知道启动命令。
 
 ### 3.3 ACP 会话
 
@@ -145,7 +149,7 @@ agent  → {stopReason}
 store 中每一步对应一份快照：
 
 ```text
-<store>/source/viba_acp/          # 两份文档拼出的两个模块（每次运行重新生成）
+<store>/source/viba_acp/          # 示例程序；模块在 viba_acp/ 下（每次运行重新生成）
 <store>/root/c0/value.viba       # open_session 的 SessionId
 <store>/root/c1/value.viba       # prompt 的 PromptResponse
 <store>/failure/round-1.viba     # 本轮的失败状态（无递延时为空记录）
@@ -203,7 +207,7 @@ python3 viba_acp/acp_client.py --agent "npx -y @agentclientprotocol/claude-agent
 
 | 文件 | 说明 |
 |---|---|
-| [`viba_acp.viba.md`](../viba_acp.viba.md) | 模块 `acp.viba`：会话操作与 ACP 的类型，按名字分节 |
+| [`viba_acp.viba.md`](../viba_acp.viba.md) | 三个模块：`public.viba`、`types.viba`、`apis.viba` |
 | [`agent_service.py`](agent_service.py) | 服务那一侧：会话、两个操作，以及 agent 的启动命令 `AGENT` |
 | [`acp_client.py`](acp_client.py) | ACP 客户端：stdio 分帧、会话、prompt、权限、取消 |
 | [`scripted_agent.py`](scripted_agent.py) | 脚本化的 ACP agent：不含模型，响应可以预期 |

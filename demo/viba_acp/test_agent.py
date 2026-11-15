@@ -34,7 +34,7 @@ from distributed import service
 from viba.interpret import get_snapshot
 
 import acp_client
-from run import module_source
+from run import read_modules
 
 checks = Checks("viba_acp")
 check = checks.check
@@ -139,37 +139,28 @@ def _one_schedule_runs_the_agent(tmp: Path):
 
 
 def _the_sources_are_documents(tmp: Path):
-    """源码是两份文档；`run.py` 把每份文档的 `viba` 代码块按顺序拼成一个模块再跑。"""
+    """源码是两份文档；`viba <name>` 块命名模块，标题只是文档。"""
     documents = (
         (ROOT / "viba_acp.viba.md",
-         {"open_session", "send_prompt", "resume_session", "load_session",
-          "cancel_session", "close_session", "delete_session", "archive_session",
-          "unarchive_session", "set_session_title",
-          "SessionId", "MessageId", "SessionNotification", "session_update_handler",
-          "UserMessageChunk",
-          "AgentMessageChunk", "AgentThoughtChunk", "ContentBlock",
-          "TextContent", "ImageContent", "AudioContent", "ResourceLink",
-          "EmbeddedResource", "TextResourceContents", "BlobResourceContents",
-          "StopReason", "PromptResponse", "Usage", "Annotations", "Role"}),
+         {"需求背景", "public.viba", "types.viba", "基本操作", "apis.viba"},
+         {"public.viba", "types.viba", "apis.viba"}, "viba_acp"),
         (ROOT / "demo" / "viba_acp.viba.md",
-         {"声明与参数", "开会话", "提问"}),
+         {"explain_then_shorten.viba"},
+         {"explain_then_shorten.viba"}, ""),
     )
-    for document, headings in documents:
+    built = tmp / "one" / "source" / "viba_acp"
+    for document, headings, modules, sub in documents:
         found = {line.lstrip("#").strip()
                  for line in document.read_text(encoding="utf-8").splitlines()
                  if line.startswith("## ")}
         check(found == headings,
               f"{document.name} has these sections: {sorted(found)}")
-
-    built = tmp / "one" / "source" / "viba_acp"
-    for document, name in ((ROOT / "viba_acp.viba.md", "acp.viba"),
-                           (ROOT / "demo" / "viba_acp.viba.md",
-                            "explain_then_shorten.viba")):
-        written = built / name
-        check(written.is_file(), f"the build has {name}: {written}")
-        if written.is_file():
-            check(written.read_text(encoding="utf-8") == module_source(document),
-                  f"and it is the document's viba blocks, in order: {name}")
+        read = set(read_modules(document))
+        check(read == modules,
+              f"{document.name} names these modules: {sorted(read)}")
+        for name in modules:
+            written = built / sub / name
+            check(written.is_file(), f"the build has {sub + '/' if sub else ''}{name}: {written}")
 
 
 def _the_same_store_asks_nothing(tmp: Path):

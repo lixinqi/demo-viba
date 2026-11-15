@@ -19,6 +19,7 @@ directory; the service is named by python module and must be importable there.
 
 import argparse
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -76,41 +77,68 @@ def main(argv=None) -> int:
 
 
 def build_source(store: Path) -> Path:
-    """Write the two modules the program needs, from the two documents.
+    """Write the modules the two documents name, and answer the entry.
 
-    A document here is one module, divided into sections by its headings: every
-    `viba` block, in order, is the module's source. The headings and the prose are
-    the documentation; they do not enter the file. The documents stay the source;
-    this directory is a build product, made again on every run.
+    A document's sections are documentation and code: a `viba <name>` block
+    names its file (`viba types` is `types.viba`), and the prose around it becomes
+    that file's comments. The interface document's modules go under
+    `<source>/viba_acp/`, the demo's program under `<source>/`; the documents stay
+    the source, this directory is a build product.
     """
     source = store / "source" / "viba_acp"
     source.mkdir(parents=True, exist_ok=True)
-    for document, name in ((ROOT / "viba_acp.viba.md", "acp.viba"),
-                           (ROOT / "demo" / "viba_acp.viba.md",
-                            "explain_then_shorten.viba")):
-        (source / name).write_text(module_source(document), encoding="utf-8")
+    (source / "viba_acp").mkdir(parents=True, exist_ok=True)
+    for document, directory in (
+            (ROOT / "viba_acp.viba.md", source / "viba_acp"),
+            (ROOT / "demo" / "viba_acp.viba.md", source)):
+        for name, text in read_modules(document).items():
+            (directory / name).write_text(text, encoding="utf-8")
     return source / "explain_then_shorten.viba"
 
 
-def module_source(document: Path) -> str:
-    """The module a document stands for: its `viba` blocks, in order, joined."""
-    blocks = []
-    inside = wanted = False
-    current = []
-    for line in document.read_text(encoding="utf-8").splitlines():
-        if line.startswith("```"):
+def read_modules(document: Path) -> dict:
+    """The files a document names: label (`viba types`) or heading, and comments."""
+    text = document.read_text(encoding="utf-8")
+    sections = []
+    heading, body = None, []
+    for line in text.splitlines():
+        if re.match(r"^#{1,6}\s", line):
+            if heading is not None:
+                sections.append((heading, body))
+            heading, body = line.lstrip("#").strip(), []
+        else:
+            body.append(line)
+    if heading is not None:
+        sections.append((heading, body))
+
+    files = {}
+    for heading, body in sections:
+        prose, blocks = [], []
+        inside, label, code = False, None, []
+        for line in body:
+            if line.startswith("```"):
+                if inside:
+                    blocks.append((label, code))
+                    inside, label, code = False, None, []
+                else:
+                    inside, label, code = True, line[3:].strip(), []
+                continue
             if inside:
-                if wanted:
-                    blocks.append("\n".join(current))
-                inside = wanted = False
-                current = []
+                code.append(line)
             else:
-                inside = True
-                wanted = line[3:].strip() == "viba"
+                prose.append(line)
+        if not blocks:
             continue
-        if inside:
-            current.append(line)
-    return "\n\n".join(blocks) + "\n"
+        label = blocks[0][0] or ""
+        words = label.split()
+        name = words[1] if len(words) > 1 else heading
+        if not name.endswith(".viba"):
+            name += ".viba"
+        content = [f"# {line}" if line.strip() else "" for line in prose]
+        for _label, code in blocks:
+            content.extend(code)
+        files.setdefault(name, []).extend(content)
+    return {name: "".join(f"{line}\n" for line in lines) for name, lines in files.items()}
 
 
 if __name__ == "__main__":
