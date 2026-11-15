@@ -1,0 +1,8 @@
+value =
+  $ticket_uid "t2"
+  * $handler_name "a"
+  * $interpret_result ($err ($not_implemented_err ($msg "no implementation"
+    * $module_path "/service_b"
+    * $full_qualified_func_name "service_b.b_scale"
+    * $call (__dyn_call__ << "service_b.b_scale" << $x 23))))
+  * $time "2026-10-07T10:39:44.638549+00:00"

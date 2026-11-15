@@ -48,9 +48,7 @@ DOCUMENTS = ("viba-compliance.md",
              "viba_ticket/README.md",
              "viba_ticket/two_handlers/README.md",
              "viba_ticket/add_one/README.md",
-             "viba_acp/README.md",
-             "viba_acp.viba.md",
-             "demo/viba_acp.viba.md")
+             )
 
 
 def viba_blocks(text: str) -> list:

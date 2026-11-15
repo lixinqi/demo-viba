@@ -1,0 +1,5 @@
+value =
+  $ticket_uid "t2"
+  * $handler_name "b"
+  * $interpret_result ($ok 46)
+  * $time "2026-10-07T10:39:44.694409+00:00"

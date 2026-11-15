@@ -1,0 +1,12 @@
+value =
+  Object
+  * $ticket_uid "t1"
+  * $viba_interpreter_repo_commit_id "5e2c1600db6fc5576c07eeb31437726f98c199f2"
+  * $viba_interpreter_repo_path "/Users/bytedance/workspace/demo-viba/viba"
+  * $VIBA_PATH ListLiteral["/Users/bytedance/workspace/demo-viba/viba"]
+  * $norm_repo_commit_id "fda6c16d2f4f000c4a5fc8b21ae2d0a0d906be55"
+  * $norm_repo_path "/Users/bytedance/workspace/demo-viba/viba_ticket/two_handlers"
+  * $call (__dyn_call__ << "the_program" << 1)
+  * $storage_path "/Users/bytedance/workspace/demo-viba/demo/ticket_examples/run/t1/storage"
+  * $handler_name2api_repo_commit_id DictLiteral[("a", "fda6c16d2f4f000c4a5fc8b21ae2d0a0d906be55"), ("b", "fda6c16d2f4f000c4a5fc8b21ae2d0a0d906be55")]
+  * $time "2026-10-07T10:39:42.391555+00:00"
